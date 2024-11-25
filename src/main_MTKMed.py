@@ -264,11 +264,12 @@ def random_mask_word(seq, vocab, mask_prob=0.15):
     return seq
 
 # mask batch data
-def mask_batch_data(batch_data, diag_voc, pro_voc, mask_prob):
+def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
     masked_data = []
-    for visit in batch_data:
-        diag = random_mask_word(visit[0], diag_voc, mask_prob)
-        pro = random_mask_word(visit[1], pro_voc, mask_prob)
+
+    for contact in batch_data:
+        diag = random_mask_word(contact[1], diag_voc, mask_prob)
+        pro = random_mask_word(contact[2], pro_voc, mask_prob)
         masked_data.append([diag, pro])
     return masked_data
 
@@ -377,9 +378,9 @@ def main(args):
 
     if args.pretrain_nsp:
         main_nsp(args, model, optimizer, writer, data_train, data_valid, device, save_dir, log_save_id)
-    # if args.pretrain_mask:
-    #     main_mask(args, model, optimizer, writer, diag_voc, pro_voc, data_train, data_val,
-    #             voc_size, device, save_dir, log_save_id)
+    if args.pretrain_mask:
+        main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, voc_size, device, save_dir,
+                  log_save_id)
     
     if not (args.pretrain_mask or args.pretrain_nsp) and args.pretrain_prefix is not None:
         # if not pretrain, load pretrained model; else, train from scratch
@@ -440,7 +441,9 @@ def main(args):
     torch.save(best_model_state, open(os.path.join(save_dir,
                                                    'Epoch_{}_auc_{:.4}.model'.format(best_epoch, best_auc)), 'wb'))
 
-def main_mask(args, model, optimizer, writer, diag_voc, pro_voc, data_train, data_val, voc_size, device, save_dir, log_save_id):
+
+def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, voc_size, device, save_dir,
+                  log_save_id):
     epoch_mask = 0
     best_epoch_mask, best_ja_mask = 0, 0
     EPOCH = args.pretrain_epochs
@@ -453,9 +456,10 @@ def main_mask(args, model, optimizer, writer, diag_voc, pro_voc, data_train, dat
         epoch_mask += 1
         loss_train = 0
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(data_train, ncols=60, desc="pretrain_mask", total=len(data_train)):
-            batch_size = len(batch)
+            batch_size = len(inputs)
             if args.mask_prob > 0:
-                masked_batch = mask_batch_data(batch, diag_voc, pro_voc, args.mask_prob)
+                masked_batch = mask_batch_data(inputs, dataset.cure_voc, dataset.evaluation_voc, dataset.symptom_voc,
+                                               args.mask_prob)
             else:
                 masked_batch = batch
             result = model(masked_batch, mode='pretrain_mask').view(1, -1)
