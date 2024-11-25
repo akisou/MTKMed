@@ -39,9 +39,9 @@ def get_args():
     parser.add_argument('--cuda', type=int, default=0, help='which cuda')
     # pretrain
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
-    parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
+    parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=20, help='number of pretrain epochs')
-    parser.add_argument('--mask_prob', type=float, default=0, help='mask probability')
+    parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
 
     parser.add_argument('--embed_dim', type=int, default=768, help='dimension of node embedding')   # 增大embedding_size, 加快训练速度，但增加了过拟合风险
     parser.add_argument('--hidden_dim', type=int, default=768, help='hidden_dim of mmoe module')
@@ -69,7 +69,7 @@ def get_args():
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
-    parser.add_argument('-s', '--doctor_seperate', action='store_false', help='whether to combine disease, evaluation, symptom')
+    parser.add_argument('-s', '--doctor_seperate', action='store_true', help='whether to combine disease, evaluation, symptom')
     parser.add_argument('-e', '--seg_rel_emb', action='store_false', default = True, help='whether to use segment and relevance embedding layer')
 
     args = parser.parse_args()
@@ -246,17 +246,17 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
 
 def random_mask_word(seq, vocab, mask_prob=0.15):
     mask_idx = vocab.word2idx['[MASK]']
-    for i, _ in enumerate(seq):
+    for i, _ in enumerate(seq[0]):
         prob = random.random()
         # mask token with 15% probability
-        if prob < mask_prob: # 这个比例或许可以改一下
+        if prob < mask_prob:
             prob /= mask_prob
             # 80% randomly change token to mask token
             if prob < 0.8:
-                seq[i] = mask_idx
+                seq[0][i] = mask_idx
             # 10% randomly change token to random token
             elif prob < 0.9:
-                seq[i] = random.choice(list(vocab.word2idx.items()))[1]
+                seq[0][i] = random.choice(list(vocab.word2idx.items()))[1]
             else:
                 pass
         else:
@@ -265,13 +265,12 @@ def random_mask_word(seq, vocab, mask_prob=0.15):
 
 # mask batch data
 def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
-    masked_data = []
-
-    for contact in batch_data:
-        diag = random_mask_word(contact[1], diag_voc, mask_prob)
-        pro = random_mask_word(contact[2], pro_voc, mask_prob)
-        masked_data.append([diag, pro])
-    return masked_data
+    for i in range(len(batch_data)):
+        dis = random_mask_word(batch_data[i][1], dis_voc, mask_prob)
+        evalu = random_mask_word(batch_data[i][2], eval_voc, mask_prob)
+        sym = random_mask_word(batch_data[i][3], sym_voc, mask_prob)
+        batch_data[i][1:4] = [dis, evalu, sym]
+    return batch_data
 
 def nsp_batch_data(batch_data, data, neg_sample_rate=1):
     nsp_batch = []
@@ -303,7 +302,7 @@ def main(args):
     logging.info(args)
 
     # device choose
-    device = "cpu"  # torch.device('cuda:{}'.format(args.cuda))
+    device = torch.device('cuda:{}'.format(args.cuda))
 
     # load data
     dataset = MedDataset(args.data_path, "cpu")
@@ -328,7 +327,7 @@ def main(args):
         data_train,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=3,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -337,7 +336,7 @@ def main(args):
         data_valid,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=1,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -346,7 +345,7 @@ def main(args):
         data_test,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=1,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -360,7 +359,7 @@ def main(args):
     if args.test:
         model_path = get_model_path(log_directory_path, args.log_dir_prefix)
         model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device))
-        model.to(device=device)
+        model.to(device)
         logging.info("load model from %s", model_path)
         rec_results_path = save_dir + '/' + 'rec_results'
 
@@ -371,7 +370,7 @@ def main(args):
         writer = SummaryWriter(save_dir)  # 自动生成log文件夹
 
     # train and validation
-    model.to(device=device)
+    model.to(device)
     logging.info(f'n_parameters:, {get_n_params(model)}')
     optimizer = Optimizer(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     logging.info(f'Optimizer: {optimizer}')
@@ -400,6 +399,7 @@ def main(args):
         # finetune
         model.train()
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="fintune", total=len(data_train)):
+            inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
             rec_result, ssc_result = model(inputs)
             label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
@@ -455,28 +455,29 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
         model.train()
         epoch_mask += 1
         loss_train = 0
-        for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(data_train, ncols=60, desc="pretrain_mask", total=len(data_train)):
+        for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="pretrain_mask", total=len(data_train)):
             batch_size = len(inputs)
             if args.mask_prob > 0:
                 masked_batch = mask_batch_data(inputs, dataset.cure_voc, dataset.evaluation_voc, dataset.symptom_voc,
                                                args.mask_prob)
             else:
-                masked_batch = batch
+                masked_batch = inputs
+            masked_batch = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in masked_batch]
             result = model(masked_batch, mode='pretrain_mask').view(1, -1)
             bce_target_dis = np.zeros((batch_size, voc_size[0]))
             bce_target_pro = np.zeros((batch_size, voc_size[1]))
 
             for i in range(batch_size):
-                bce_target_dis[i, batch[i][0]] = 1
-                bce_target_pro[i, batch[i][1]] = 1
+                bce_target_dis[i, inputs[i][0]] = 1
+                bce_target_pro[i, inputs[i][1]] = 1
             bce_target = np.concatenate((bce_target_dis, bce_target_pro), axis=1)
 
             # multi label margin loss
             multi_target_dis = np.full((1, voc_size[0]), -1)
             multi_target_pro = np.full((1, voc_size[1]), -1)
             for i in range(batch_size):
-                multi_target_dis[i, 0:len(batch[i][0])] = batch[i][0]
-                multi_target_pro[i, 0:len(batch[i][1])] = batch[i][1]
+                multi_target_dis[i, 0:len(inputs[i][0])] = inputs[i][0]
+                multi_target_pro[i, 0:len(inputs[i][1])] = inputs[i][1]
             multi_target = np.concatenate((multi_target_dis, multi_target_pro), axis=1)
 
             loss_bce = F.binary_cross_entropy_with_logits(result, torch.tensor(bce_target).to(device).view(1, -1))
@@ -489,7 +490,7 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
             loss_train += loss.item()
         loss_train /= len(data_train)
         # validation
-        loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask')
+        loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = evaluator_mask(model, data_valid, voc_size, epoch, device, mode='pretrain_mask')
 
         if ja > best_ja_mask:
             best_epoch_mask, best_ja_mask = epoch, ja
@@ -509,6 +510,7 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
         epoch_nsp += 1
         loss_train = 0
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="pretrain_nsp", total=len(data_train)):
+            inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
             result = model(inputs, mode='pretrain_nsp')
             label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             loss = model.compute_loss_nsp(result, label_targets)

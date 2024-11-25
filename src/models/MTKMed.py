@@ -98,7 +98,7 @@ class DoctorEncoder(nn.Module):
         self.seq_len_disease = args.seq_len_disease
         self.seq_len_evaluation = args.seq_len_evaluation
         self.seq_len_symptom = args.seq_len_symptom
-        self.device = 'cpu'  # torch.device('cuda:{}'.format(args.cuda))
+        self.device = torch.device('cuda:{}'.format(args.cuda))
 
         # self.embeddings = nn.ModuleList(
         #     [nn.Embedding(voc_size[i] + 1, self.emb_dim) for i in range(3)])  # disease, eval_disease, symptom
@@ -205,9 +205,9 @@ class DoctorEncoder(nn.Module):
         batch_disease, batch_disease_frequency, batch_evaluation, \
             batch_evaluation_frequency, batch_symptom, batch_symptom_frequency = self.parse(inputs)
 
-        disease_embedding = self.embeddings[0](torch.LongTensor(batch_disease).to(self.device))  # (b, seq_len, dim/3)
-        evaluation_embedding = self.embeddings[1](torch.LongTensor(batch_evaluation).to(self.device))  # (b, seq_len, dim/3)
-        symptom_embedding = self.embeddings[2](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim/3)
+        disease_embedding = self.embeddings[0](batch_disease)  # (b, seq_len, dim/3)
+        evaluation_embedding = self.embeddings[1](batch_evaluation)  # (b, seq_len, dim/3)
+        symptom_embedding = self.embeddings[2](batch_symptom)  # (b, seq_len, dim/3)
 
         disease_embedding = self.frequency_embedding_layer_disease(batch_disease_frequency, disease_embedding)  # (b, seq_len, dim / 3)
         evaluation_embedding = self.frequency_embedding_layer_evaluation(batch_evaluation_frequency, evaluation_embedding)  # (b, seq_len, dim / 3)
@@ -250,9 +250,9 @@ class DoctorEncoder(nn.Module):
             batch_evaluation_frequency, batch_symptom, batch_symptom_frequency = self.parse(inputs)
 
         # initial emb
-        disease_embedding = self.embeddings[0](torch.LongTensor(batch_disease).to(self.device))  # (b, seq_len, dim)
-        evaluation_embedding = self.embeddings[1](torch.LongTensor(batch_evaluation).to(self.device))  # (b, seq_len, dim)
-        symptom_embedding = self.embeddings[2](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim)
+        disease_embedding = self.embeddings[0](batch_disease)  # (b, seq_len, dim)
+        evaluation_embedding = self.embeddings[1](batch_evaluation)  # (b, seq_len, dim)
+        symptom_embedding = self.embeddings[2](batch_symptom)  # (b, seq_len, dim)
 
         # frequency info emb and add
         disease_embedding = self.frequency_embedding_layer_disease(batch_disease_frequency, disease_embedding)  # (b, seq_len, dim)
@@ -337,12 +337,13 @@ class PatientEncoder(torch.nn.Module):
 class MTKMed(nn.Module):
     def __init__(self, args, dataset, voc_size):
         super(MTKMed, self).__init__()
+        self.device = torch.device('cuda:{}'.format(args.cuda))
         self.disease_boundaries = dataset.cal_boundaries('cure', args.boundaries_num)
         self.evaluation_boundaries = dataset.cal_boundaries('evaluation', args.boundaries_num)
         self.symptom_boundaries = dataset.cal_boundaries('symptom', args.boundaries_num)
-        boundaries = [torch.FloatTensor(self.disease_boundaries),
-                      torch.FloatTensor(self.evaluation_boundaries),
-                      torch.FloatTensor(self.symptom_boundaries)]
+        boundaries = [torch.FloatTensor(self.disease_boundaries).to(self.device),
+                      torch.FloatTensor(self.evaluation_boundaries).to(self.device),
+                      torch.FloatTensor(self.symptom_boundaries).to(self.device)]
 
         # vocabulary size
         self.voc_size = voc_size
@@ -429,7 +430,6 @@ class MTKMed(nn.Module):
         result = result.squeeze(dim=1)  # (B,)
         logit = F.sigmoid(result)
         return logit
-
 
     def forward(self, input, mode='fine-tune'):
         assert mode in ['fine-tune', 'pretrain_mask', 'pretrain_nsp']
