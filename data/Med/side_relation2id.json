@@ -1,0 +1,6 @@
+{
+    "doctor.work_in.hospital": 1,
+    "doctor.member_of.institute": 2,
+    "doctor.experience.institute": 3,
+    "doctor.cooperate_with.doctor": 4
+}
