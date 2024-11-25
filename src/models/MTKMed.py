@@ -98,7 +98,7 @@ class DoctorEncoder(nn.Module):
         self.seq_len_disease = args.seq_len_disease
         self.seq_len_evaluation = args.seq_len_evaluation
         self.seq_len_symptom = args.seq_len_symptom
-        self.device = torch.device('cuda:{}'.format(args.cuda))
+        self.device = 'cpu'  # torch.device('cuda:{}'.format(args.cuda))
 
         # self.embeddings = nn.ModuleList(
         #     [nn.Embedding(voc_size[i] + 1, self.emb_dim) for i in range(3)])  # disease, eval_disease, symptom
@@ -117,9 +117,9 @@ class DoctorEncoder(nn.Module):
         if args.doctor_seperate == False:
             self.embeddings = nn.ModuleList(
                 [nn.Embedding(voc_size[i] + 1, self.emb_dim) for i in range(3)])  # disease, eval_disease, symptom
-            self.special_embeddings = nn.Embedding(2, self.emb_dim)  # add token：[CLS]， [SEP]
+            self.special_embeddings = nn.Embedding(3, self.emb_dim)  # add token：[CLS]， [SEP1], [SEP2]
             self.transformer_visit = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=args.nhead, dropout=args.dropout, batch_first=True),
+                nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=args.nhead, dropout=args.dropout),
                 num_layers=args.encoder_layers
             )
             self.frequency_embedding_layer_disease = LearnableFrequencyEncoder(dim=self.emb_dim, boundaries=self.disease_boundaries)
@@ -129,17 +129,17 @@ class DoctorEncoder(nn.Module):
         else:
             self.embeddings = nn.ModuleList(
                 [nn.Embedding(voc_size[i] + 1, self.emb_dim // 3) for i in range(3)])  # disease, eval_disease, symptom
-            self.special_embeddings = nn.Embedding(3, self.emb_dim // 3)  # add token：[CLS]， [SEP]
+            self.special_embeddings = nn.Embedding(3, self.emb_dim // 3)  # add token：[CLS]， [SEP1], [SEP2]
             self.transformer_disease = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout, batch_first=True),
+                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout),
                 num_layers=args.encoder_layers
             )
             self.transformer_evaluation = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout, batch_first=True),
+                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout),
                 num_layers=args.encoder_layers
             )
             self.transformer_symptom = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout, batch_first=True),
+                nn.TransformerEncoderLayer(d_model=self.emb_dim // 3, nhead=args.nhead, dropout=args.dropout),
                 num_layers=args.encoder_layers,
             )
 
@@ -198,7 +198,7 @@ class DoctorEncoder(nn.Module):
 
     def doctor_encoder_seperate(self, inputs):
         # inputs: size(batch, 3)
-        batch_size = len(inputs)
+        batch_size = len(inputs[0])
         # notion:  seq len of different tokens is maybe different
 
         # parse
@@ -207,27 +207,33 @@ class DoctorEncoder(nn.Module):
 
         disease_embedding = self.embeddings[0](torch.LongTensor(batch_disease).to(self.device))  # (b, seq_len, dim/3)
         evaluation_embedding = self.embeddings[1](torch.LongTensor(batch_evaluation).to(self.device))  # (b, seq_len, dim/3)
-        symptom_embedding = self.embeddings[0](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim/3)
+        symptom_embedding = self.embeddings[2](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim/3)
 
         disease_embedding = self.frequency_embedding_layer_disease(batch_disease_frequency, disease_embedding)  # (b, seq_len, dim / 3)
         evaluation_embedding = self.frequency_embedding_layer_evaluation(batch_evaluation_frequency, evaluation_embedding)  # (b, seq_len, dim / 3)
         symptom_embedding = self.frequency_embedding_layer_evaluation(batch_symptom_frequency, symptom_embedding)  # (b, seq_len, dim / 3)
 
-        # 加入CLS token
+        # add CLS token
         cls_embedding_dis = torch.stack([self.special_embeddings(self.special_tokens['CLS'])] * batch_size, dim=0)  # (b, 1, dim/3)
-        sep_embedding_eval = torch.stack([self.special_embeddings(self.special_tokens['SEP1'])] * batch_size, dim=0)  # (b, 1, dim/3)
-        sep_embedding_sym = torch.stack([self.special_embeddings(self.special_tokens['SEP2'])] * batch_size, dim=0)  # (b, 1, dim/3)
+        cls_embedding_eval = torch.stack([self.special_embeddings(self.special_tokens['SEP1'])] * batch_size, dim=0)  # (b, 1, dim/3)
+        cls_embedding_sym = torch.stack([self.special_embeddings(self.special_tokens['SEP2'])] * batch_size, dim=0)  # (b, 1, dim/3)
         disease_embedding = torch.cat((cls_embedding_dis, disease_embedding), dim=1)  # (b, seq_len + 1, dim/3)
-        evaluation_embedding = torch.cat((sep_embedding_eval, evaluation_embedding), dim=1)  # (b, seq_len + 1, dim/3)
-        symptom_embedding = torch.cat((sep_embedding_sym, symptom_embedding), dim=1) # (b, seq_len + 1, dim/3)
+        evaluation_embedding = torch.cat((cls_embedding_eval, evaluation_embedding), dim=1)  # (b, seq_len + 1, dim/3)
+        symptom_embedding = torch.cat((cls_embedding_sym, symptom_embedding), dim=1) # (b, seq_len + 1, dim/3)
 
+        # transpose
+        disease_embedding = torch.transpose(disease_embedding, 0, 1)
+        evaluation_embedding = torch.transpose(evaluation_embedding, 0, 1)
+        symptom_embedding = torch.transpose(symptom_embedding, 0, 1)
+
+        # transformer layer  [b, dim// 3]
         disease_representation = self.transformer_disease(disease_embedding)[0]  # (b, seq_len + 1, dim / 3)
         evaluation_representation = self.transformer_evaluation(evaluation_embedding)[0]  # (b, seq_len + 1, dim / 3)
         symptom_representation = self.transformer_disease(symptom_embedding)[0]  # (b, seq_len + 1, dim / 3)
 
-        disease_representation = disease_representation.mean(dim=1)  # (b, dim/3)
-        evaluation_representation = evaluation_representation.mean(dim=1)  # (b, dim/3)
-        symptom_representation = symptom_representation.mean(dim=1)  # (b, dim/3)
+        # disease_representation = disease_representation.mean(dim=1)  # (b, dim/3)
+        # evaluation_representation = evaluation_representation.mean(dim=1)  # (b, dim/3)
+        # symptom_representation = symptom_representation.mean(dim=1)  # (b, dim/3)
 
         # disease_representation = torch.reshape(disease_representation, (batch_size, 1, -1))  # (b,1,dim/3)
         # evaluation_representation = torch.reshape(evaluation_representation, (batch_size, 1, -1))  # (b,1,dim/3)
@@ -237,7 +243,7 @@ class DoctorEncoder(nn.Module):
         return batch_repr  # (b, dim)
 
     def doctor_encoder_unified(self, inputs):
-        batch_size = len(inputs)
+        batch_size = len(inputs[0])
 
         # parse
         batch_disease, batch_disease_frequency, batch_evaluation, \
@@ -246,7 +252,7 @@ class DoctorEncoder(nn.Module):
         # initial emb
         disease_embedding = self.embeddings[0](torch.LongTensor(batch_disease).to(self.device))  # (b, seq_len, dim)
         evaluation_embedding = self.embeddings[1](torch.LongTensor(batch_evaluation).to(self.device))  # (b, seq_len, dim)
-        symptom_embedding = self.embeddings[0](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim)
+        symptom_embedding = self.embeddings[2](torch.LongTensor(batch_symptom).to(self.device))  # (b, seq_len, dim)
 
         # frequency info emb and add
         disease_embedding = self.frequency_embedding_layer_disease(batch_disease_frequency, disease_embedding)  # (b, seq_len, dim)
@@ -254,30 +260,31 @@ class DoctorEncoder(nn.Module):
         symptom_embedding = self.frequency_embedding_layer_evaluation(batch_symptom_frequency, symptom_embedding)  # (b, seq_len, dim)
 
         # add segment embedding
-        segment_disease = torch.tensor([0] * len(self.seq_len_disease)).to(self.device)  # (seq_len,)
+        segment_disease = torch.tensor([0] * self.seq_len_disease).to(self.device)  # (seq_len,)
         segment_disease_embedding = torch.stack([self.segment_embedding(segment_disease)] * batch_size, dim=0)# (b, seq_len, dim)
         disease_embedding += segment_disease_embedding
 
-        segment_evaluation = torch.tensor([1] * len(self.seq_len_evaluation)).to(self.device)  # (seq_len,)
+        segment_evaluation = torch.tensor([1] * self.seq_len_evaluation).to(self.device)  # (seq_len,)
         segment_evaluation_embedding = torch.stack([self.segment_embedding(segment_evaluation)] * batch_size, dim=0)  # (b, seq_len, dim)
         evaluation_embedding += segment_evaluation_embedding
 
-        segment_symptom = torch.tensor([2] * len(self.seq_len_symptom)).to(self.device)  # (seq_len,)
+        segment_symptom = torch.tensor([2] * self.seq_len_symptom).to(self.device)  # (seq_len,)
         segment_symptom_embedding = torch.stack([self.segment_embedding(segment_symptom)] * batch_size, dim=0)  # (b, seq_len, dim)
         symptom_embedding += segment_symptom_embedding
 
         # 加入CLS token
         cls_embedding_dis = torch.stack([self.special_embeddings(self.special_tokens['CLS'])] * batch_size, dim=0)  # (b, 1, dim)
-        sep_embedding_eval = torch.stack([self.special_embeddings(self.special_tokens['SEP1'])] * batch_size, dim=0)  # (b, 1 , dim)
-        sep_embedding_sym = torch.stack([self.special_embeddings(self.special_tokens['SEP2'])] * batch_size, dim=0)  # (b, 1, dim)
+        cls_embedding_eval = torch.stack([self.special_embeddings(self.special_tokens['SEP1'])] * batch_size, dim=0)  # (b, 1 , dim)
+        cls_embedding_sym = torch.stack([self.special_embeddings(self.special_tokens['SEP2'])] * batch_size, dim=0)  # (b, 1, dim)
         disease_embedding = torch.cat((cls_embedding_dis, disease_embedding), dim=1)  # (b, seq_len + 1, dim)
-        evaluation_embedding = torch.cat((sep_embedding_eval, evaluation_embedding), dim=1)  # (b, seq_len + 1, dim)
-        symptom_embedding = torch.cat((sep_embedding_sym, symptom_embedding), dim=1)  # (b, seq_len + 1, dim)
+        evaluation_embedding = torch.cat((cls_embedding_eval, evaluation_embedding), dim=1)  # (b, seq_len + 1, dim)
+        symptom_embedding = torch.cat((cls_embedding_sym, symptom_embedding), dim=1)  # (b, seq_len + 1, dim)
 
         # (b, seq_len_disease + seq_len_valuation + seq_len_symptom + 3, dim)
         combined_embedding = torch.cat((disease_embedding, evaluation_embedding, symptom_embedding), dim=1)
+        combined_embedding = torch.transpose(combined_embedding, 0, 1) # [seq_len, b, dim]
 
-        batch_repr = self.transformer_visit(combined_embedding)[0]  # (b, sum_seq_len + 3, dim)
+        batch_repr = self.transformer_visit(combined_embedding)[0]  # (b, dim)
 
         return batch_repr
 
@@ -333,7 +340,9 @@ class MTKMed(nn.Module):
         self.disease_boundaries = dataset.cal_boundaries('cure', args.boundaries_num)
         self.evaluation_boundaries = dataset.cal_boundaries('evaluation', args.boundaries_num)
         self.symptom_boundaries = dataset.cal_boundaries('symptom', args.boundaries_num)
-        boundaries = [self.disease_boundaries, self.evaluation_boundaries, self.symptom_boundaries]
+        boundaries = [torch.FloatTensor(self.disease_boundaries),
+                      torch.FloatTensor(self.evaluation_boundaries),
+                      torch.FloatTensor(self.symptom_boundaries)]
 
         # vocabulary size
         self.voc_size = voc_size
@@ -356,9 +365,9 @@ class MTKMed(nn.Module):
         self.cls_mask = nn.Linear(args.embed_dim, self.voc_size[0]+self.voc_size[1]+self.voc_size[2])
 
         # self.nsp_adapter = Adapter(self.emb_dim, args.adapter_dim)
-        self.cls_nsp = nn.Linear(args.embed_dim, 1)
+        self.cls_nsp = nn.Linear(args.embed_dim * 4, 1)
 
-        self.mmoe = MMOE(args.embed_dim, args.num_experts, args.hidden_dim, 2)
+        self.mmoe = MMOE(args.embed_dim * 4, args.num_experts, args.hidden_dim, 2)
         # loss weight
         self.weight_ssc = args.weight_ssc
 
@@ -373,7 +382,7 @@ class MTKMed(nn.Module):
         # doctor_repr = self.doctor_layer(patient_repr)  # (B,dim)
 
         # patient query emb
-        patient_repr = self.p_encoder.patient_encoder(transformed_inputs[4])
+        patient_repr = self.p_encoder(transformed_inputs[4])
 
         # doctor node kgcn embeding, [B, kg_dim]
         patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation)
@@ -409,7 +418,7 @@ class MTKMed(nn.Module):
         # doctor_repr = self.doctor_layer(patient_repr)  # (B,dim)
 
         # patient query emb
-        patient_repr = self.p_encoder.patient_encoder(transformed_inputs[4])
+        patient_repr = self.p_encoder(transformed_inputs[4])
 
         # doctor node kgcn embeding, [B, kg_dim]
         patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation)
@@ -440,7 +449,7 @@ class MTKMed(nn.Module):
 
     def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets):
         # a loss computer for nsp, mask and fine_tuned
-        label_loss = F.binary_cross_entropy(label_scores, label_targets.float())
+        label_loss = F.binary_cross_entropy(label_scores, label_targets)
         ssc_loss = F.mse_loss(ssc_scores, ssc_targets)
 
         return label_loss + self.weight_ssc * ssc_loss, label_loss, ssc_loss
@@ -449,13 +458,12 @@ class MTKMed(nn.Module):
         pass
 
     def compute_loss_nsp(self, label_scores, targets):
-        return F.cross_entropy(label_scores, targets)
+        return F.binary_cross_entropy(label_scores, targets)
 
     def score(self, inputs):
-        # todo write a function to get the final score of recommendation score
-        transformed_inputs = list(map(list, zip(*inputs)))
+        # a function to get the final score of recommendation score
         label_score, ssc_score = self.forward_finetune(inputs)
-        final_pred = label_score * ssc_score
+        final_pred = torch.sigmoid(label_score * ssc_score)
 
         return label_score, ssc_score, final_pred
 

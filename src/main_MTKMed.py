@@ -55,9 +55,9 @@ def get_args():
     parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')   # 增大layers，训练速度不变，性能略提高，继续增大反而会降低性能
     parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')              # 实验有问题，增加head，训练速度不变，性能略提高
     parser.add_argument('--split_rate', type=str, default='8:1:1', help='split_rate of train, valid, test dataset')  # 实验有问题，增加head，训练速度不变，性能略提高
-    parser.add_argument('--batch_size', type=int, default=1, help='batch size during training')                     # 增大batch较大影响性能，可看作正则化的一种，batch小，有过拟合风险。
+    parser.add_argument('--batch_size', type=int, default=100, help='batch size during training')                     # 增大batch较大影响性能，可看作正则化的一种，batch小，有过拟合风险。
     parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')         #
-    parser.add_argument('--boundaries_num', type=int, default=25, help='boundary num of token frequency embedding')  #
+    parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')  #
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
     parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')             # 学习率增大容易过拟合，过大则不收敛（loss不怎么下降）
@@ -69,7 +69,7 @@ def get_args():
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
-    parser.add_argument('-s', '--doctor_seperate', action='store_true', help='whether to combine disease, evaluation, symptom')
+    parser.add_argument('-s', '--doctor_seperate', action='store_false', help='whether to combine disease, evaluation, symptom')
     parser.add_argument('-e', '--seg_rel_emb', action='store_false', default = True, help='whether to use segment and relevance embedding layer')
 
     args = parser.parse_args()
@@ -95,17 +95,20 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
         # pred_score: final pred score
         rec_result, ssc_result, pred_score = model.score(inputs)
 
-        loss_combined, loss_bce_s, loss_ssc_s = model.compute_loss_fine_tuned(rec_result, ssc_result, label_targets, ssc_targets)
+        label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
+        ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
+        loss_combined, loss_bce_s, loss_ssc_s = model.compute_loss_fine_tuned(rec_result, ssc_result,
+                                                                              label_targets, ssc_targets)
         train_loss += loss_combined
         loss_bce += loss_bce_s
         loss_ssc += loss_ssc_s
-        patient_doctor_pair.extend([elem[0].cpu.numpy() for elem in inputs])
+        patient_doctor_pair.extend([elem[0].cpu().tolist() for elem in inputs])
 
-        label_all.append(label_targets.cpu().numpy())
-        pred_all.append(pred_score.cpu().numpy())
+        label_all.extend(label_targets.cpu().tolist())
+        pred_all.extend(pred_score.cpu().tolist())
 
     for pair, pred in zip(patient_doctor_pair, pred_all):
-        patient_pred_dict[pair[0]].append((pair, pred))
+        patient_pred_dict[pair[0]].append((pair[1], pred))
 
     [sorted(patient_pred_dict[key], key=lambda x: x[1], reverse=True) for key in patient_pred_dict.keys()]
     for key in patient_pred_dict.keys():
@@ -113,13 +116,14 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
 
     loss = train_loss / len(data_valid)
     auc = roc_auc_score(label_all, pred_all)
-    f1 = f1_score(label_all, pred_all)
+    f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
     # topk eval
-    precision = eval_precision(eval(args.topk_range), patient_pred_dict.keys(), patient_pred_dict, gt_valid)
-    recall = eval_recall(eval(args.topk_range), patient_pred_dict.keys(), patient_pred_dict, gt_valid)
-    ndcg = eval_NDCG(eval(args.topk_range), patient_pred_dict.keys(), patient_pred_dict, gt_valid)
-    mrr = eval_MRR(eval(args.topk_range), patient_pred_dict.keys(), patient_pred_dict, gt_valid)
+    krange = eval(args.topk_range)
+    precision = eval_precision(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
+    recall = eval_recall(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
+    ndcg = eval_NDCG(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
+    mrr = eval_MRR(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
 
     if args.test:
         os.makedirs(rec_results_path, exist_ok=True)
@@ -131,9 +135,10 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
         })
         df.to_csv(os.path.join(rec_results_path, 'predict.csv'), sep='\t', index=False)
 
-    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, 
-        AUC: {auc:.4}, F1: {f1:.4}, Precision: {precision:.4}, Recall: {recall:.4}, NDCG: {ndcg:.4}, MRR: {mrr:.4}''')
-
+    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
+    for i in range(len(krange)):
+        logging.info(f'''top{krange[i]} of Epoch {epoch:03d} Precision: {precision[i]: .4}, \
+            Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
     return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
 
 @torch.no_grad()
@@ -217,10 +222,9 @@ def evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain'):
     return loss_val/len_val, avg_ja, avg_prauc, avg_p, avg_r, avg_f1, avg_cnt
 
 @torch.no_grad()
-def evaluator_nsp(model, data_val, data, epoch, device, mode='pretrain_nsp'):
+def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
     model.eval()
     loss_val = 0
-    prc = []
     pred_all = []
     label_all = []
     for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_val), ncols=60, desc="evaluation",
@@ -229,11 +233,14 @@ def evaluator_nsp(model, data_val, data, epoch, device, mode='pretrain_nsp'):
         # ssc_result: satisfying score pred
         # pred_score: final pred score
         result = model.forward_nsp(inputs)
+        label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
         loss = model.compute_loss_nsp(result, label_targets)
         loss_val += loss
 
-        label_all.append(label_targets.cpu().numpy())
-        pred_all.append([True if round(elem) == 1. else False for elem in result.cpu().numpy()])
+        label_all.extend(label_targets.cpu().tolist())
+        pred_all.extend([True if round(ele2) == ele1 else False for ele1, ele2 in
+                         zip(label_targets.cpu().tolist(), result.cpu().tolist())])
+        break
     return np.mean(pred_all), loss_val
 
 
@@ -295,10 +302,10 @@ def main(args):
     logging.info(args)
 
     # device choose
-    device = torch.device('cuda:{}'.format(args.cuda))
+    device = "cpu"  # torch.device('cuda:{}'.format(args.cuda))
 
     # load data
-    dataset = MedDataset(args.data_path, device)
+    dataset = MedDataset(args.data_path, "cpu")
     data_train, data_valid, data_test = random_split(dataset, dataset.split_num(
         [0.1 * float(elem) for elem in args.split_rate.split(':')]))
 
@@ -384,7 +391,7 @@ def main(args):
     best_model_state = None
     for epoch in range(EPOCH):
         epoch += 1
-        print(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}')
+        logging.info(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}')
         train_loss = 0
         loss_bce = 0
         loss_ssc = 0
@@ -393,7 +400,10 @@ def main(args):
         model.train()
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="fintune", total=len(data_train)):
             rec_result, ssc_result = model(inputs)
-            loss_combined, loss_bce_train, loss_ssc_train = model.compute_loss_fine_tuned(rec_result, ssc_result, label_targets, ssc_targets)
+            label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
+            ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
+            loss_combined, loss_bce_train, loss_ssc_train = model.compute_loss_fine_tuned(
+                rec_result, ssc_result, label_targets, ssc_targets)
             loss_combined.backward()
 
             optimizer.step()
@@ -412,7 +422,7 @@ def main(args):
             evaluator(args, model, data_valid, gt_valid, epoch, device)
         
         logging.info(f'''loss_all:{avg_train_loss:.4f}, ''')
-        tensorboard_write(writer, avg_train_loss, avg_loss_bce, avg_loss_ssc, loss_val, loss_bce_val, loss_ssc_val,
+        tensorboard_write(writer, args, avg_train_loss, avg_loss_bce, avg_loss_ssc, loss_val, loss_bce_val, loss_ssc_val,
                           auc, f1, precision, recall, ndcg, mrr, epoch)
 
         # save best epoch
@@ -430,58 +440,58 @@ def main(args):
     torch.save(best_model_state, open(os.path.join(save_dir,
                                                    'Epoch_{}_auc_{:.4}.model'.format(best_epoch, best_auc)), 'wb'))
 
-# def main_mask(args, model, optimizer, writer, diag_voc, pro_voc, data_train, data_val, voc_size, device, save_dir, log_save_id):
-#     epoch_mask = 0
-#     best_epoch_mask, best_ja_mask = 0, 0
-#     EPOCH = args.pretrain_epochs
-#     for epoch in range(EPOCH):
-#         epoch += 1
-#         print(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_mask')
-#
-#         # mask pretrain
-#         model.train()
-#         epoch_mask += 1
-#         loss_train = 0
-#         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(data_train, ncols=60, desc="pretrain_mask", total=len(data_train)):
-#             batch_size = len(batch)
-#             if args.mask_prob > 0:
-#                 masked_batch = mask_batch_data(batch, diag_voc, pro_voc, args.mask_prob)
-#             else:
-#                 masked_batch = batch
-#             result = model(masked_batch, mode='pretrain_mask').view(1, -1)
-#             bce_target_dis = np.zeros((batch_size, voc_size[0]))
-#             bce_target_pro = np.zeros((batch_size, voc_size[1]))
-#
-#             for i in range(batch_size):
-#                 bce_target_dis[i, batch[i][0]] = 1
-#                 bce_target_pro[i, batch[i][1]] = 1
-#             bce_target = np.concatenate((bce_target_dis, bce_target_pro), axis=1)
-#
-#             # multi label margin loss
-#             multi_target_dis = np.full((1, voc_size[0]), -1)
-#             multi_target_pro = np.full((1, voc_size[1]), -1)
-#             for i in range(batch_size):
-#                 multi_target_dis[i, 0:len(batch[i][0])] = batch[i][0]
-#                 multi_target_pro[i, 0:len(batch[i][1])] = batch[i][1]
-#             multi_target = np.concatenate((multi_target_dis, multi_target_pro), axis=1)
-#
-#             loss_bce = F.binary_cross_entropy_with_logits(result, torch.tensor(bce_target).to(device).view(1, -1))
-#             # loss_multi = F.multilabel_margin_loss(result, torch.LongTensor(multi_target, device=device))
-#             # loss = (1 - args.weight_multi) * loss_bce + args.weight_multi * loss_multi
-#             loss = loss_bce
-#             loss.backward()
-#             optimizer.step()
-#             optimizer.zero_grad()
-#             loss_train += loss.item()
-#         loss_train /= len(data_train)
-#         # validation
-#         loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask')
-#
-#         if ja > best_ja_mask:
-#             best_epoch_mask, best_ja_mask = epoch, ja
-#         logging.info(f'Training Loss_mask: {loss_train:.4f}, Validation Loss_mask: {loss_val:.4f}, best_ja: {best_ja_mask:.4f} at epoch {best_epoch_mask}\n')
-#         tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch_mask)
-#     save_pretrained_model(model, save_dir)
+def main_mask(args, model, optimizer, writer, diag_voc, pro_voc, data_train, data_val, voc_size, device, save_dir, log_save_id):
+    epoch_mask = 0
+    best_epoch_mask, best_ja_mask = 0, 0
+    EPOCH = args.pretrain_epochs
+    for epoch in range(EPOCH):
+        epoch += 1
+        logging.info(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_mask')
+
+        # mask pretrain
+        model.train()
+        epoch_mask += 1
+        loss_train = 0
+        for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(data_train, ncols=60, desc="pretrain_mask", total=len(data_train)):
+            batch_size = len(batch)
+            if args.mask_prob > 0:
+                masked_batch = mask_batch_data(batch, diag_voc, pro_voc, args.mask_prob)
+            else:
+                masked_batch = batch
+            result = model(masked_batch, mode='pretrain_mask').view(1, -1)
+            bce_target_dis = np.zeros((batch_size, voc_size[0]))
+            bce_target_pro = np.zeros((batch_size, voc_size[1]))
+
+            for i in range(batch_size):
+                bce_target_dis[i, batch[i][0]] = 1
+                bce_target_pro[i, batch[i][1]] = 1
+            bce_target = np.concatenate((bce_target_dis, bce_target_pro), axis=1)
+
+            # multi label margin loss
+            multi_target_dis = np.full((1, voc_size[0]), -1)
+            multi_target_pro = np.full((1, voc_size[1]), -1)
+            for i in range(batch_size):
+                multi_target_dis[i, 0:len(batch[i][0])] = batch[i][0]
+                multi_target_pro[i, 0:len(batch[i][1])] = batch[i][1]
+            multi_target = np.concatenate((multi_target_dis, multi_target_pro), axis=1)
+
+            loss_bce = F.binary_cross_entropy_with_logits(result, torch.tensor(bce_target).to(device).view(1, -1))
+            # loss_multi = F.multilabel_margin_loss(result, torch.LongTensor(multi_target, device=device))
+            # loss = (1 - args.weight_multi) * loss_bce + args.weight_multi * loss_multi
+            loss = loss_bce
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            loss_train += loss.item()
+        loss_train /= len(data_train)
+        # validation
+        loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask')
+
+        if ja > best_ja_mask:
+            best_epoch_mask, best_ja_mask = epoch, ja
+        logging.info(f'Training Loss_mask: {loss_train:.4f}, Validation Loss_mask: {loss_val:.4f}, best_ja: {best_ja_mask:.4f} at epoch {best_epoch_mask}\n')
+        tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch_mask)
+    save_pretrained_model(model, save_dir)
 
 def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_dir, log_save_id):
     epoch_nsp = 0
@@ -489,13 +499,14 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
     EPOCH = args.pretrain_epochs
     for epoch in range(EPOCH):
         epoch += 1
-        print(f'\nepoch {epoch} -------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_nsp')
+        logging.info(f'\nepoch {epoch} -------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_nsp')
 
         model.train()
         epoch_nsp += 1
         loss_train = 0
-        for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(data_train, ncols=60, desc="pretrain_nsp", total=len(data_train)):
-            result = model(inputs)
+        for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="pretrain_nsp", total=len(data_train)):
+            result = model(inputs, mode='pretrain_nsp')
+            label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             loss = model.compute_loss_nsp(result, label_targets)
             loss.backward()
             optimizer.step()
@@ -503,12 +514,13 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
             loss_train += loss
         loss_train /= len(data_train)
         # validation
-        precision, loss_val = evaluator_nsp(model, data_val, data, epoch, device, mode='pretrain_nsp')
+        precision, loss_val = evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp')
         loss_val /= len(data_val)
         if precision > best_prc_nsp:
             best_epoch_nsp, best_prc_nsp = epoch, precision
         logging.info(f'Epoch {epoch:03d}   prc: {precision:.4}, best_prc: {best_prc_nsp:.4f} at epoch {best_epoch_nsp}, Training Loss_nsp: {loss_train:.4f}, Validation Loss_nsp: {loss_val:.4f}\n')
         tensorboard_write_nsp(writer, loss_train, loss_val, precision, epoch_nsp)
+
     save_pretrained_model(model, save_dir)
 
 def save_pretrained_model(model, save_dir):
@@ -523,8 +535,8 @@ def load_pretrained_model(model, model_path):
     logging.info('Pretrained model loaded from {}'.format(model_path))
 
 
-def tensorboard_write(writer, loss_train=0., loss_bce_train=0., loss_ssc_train=0., loss_val=0., loss_bce_val=0.,
-                      loss_ssc_val=0., auc=0., f1=0., precision=0., recall=0., ndcg=0., mrr=0., epoch=0):
+def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_train=0., loss_val=0., loss_bce_val=0.,
+                      loss_ssc_val=0., auc=0., f1=0., precision=None, recall=None, ndcg=None, mrr=None, epoch=0):
     if epoch > 0:
         writer.add_scalar('Loss_Train/all', loss_train, epoch)
         writer.add_scalar('Loss_Train/bce', loss_bce_train, epoch)
@@ -536,10 +548,12 @@ def tensorboard_write(writer, loss_train=0., loss_bce_train=0., loss_ssc_train=0
 
     writer.add_scalar('Metrics/AUC', auc, epoch)
     writer.add_scalar('Metrics/F1', f1, epoch)
-    writer.add_scalar('Metrics/{Precision}', precision, epoch)
-    writer.add_scalar('Metrics/Recall', recall, epoch)
-    writer.add_scalar('Metrics/NDCG', ndcg, epoch)
-    writer.add_scalar('Metrics/MRR', mrr, epoch)
+    krange = eval(args.topk_range)
+    for i in range(len(krange)):
+        writer.add_scalar(f'Metrics/top{krange[i]}/Precision', precision[i], epoch)
+        writer.add_scalar(f'Metrics/top{krange[i]}/Recall', recall[i], epoch)
+        writer.add_scalar(f'Metrics/top{krange[i]}/NDCG', ndcg[i], epoch)
+        writer.add_scalar(f'Metrics/top{krange[i]}/MRR', mrr[i], epoch)
 
 def tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch):
     writer.add_scalar('Mask/Loss_Train_Mask', loss_train, epoch)
@@ -555,9 +569,9 @@ def tensorboard_write_nsp(writer, loss_train, loss_val, precision, epoch):
 
 if __name__ == '__main__':
     sys.path.append("..")
-    torch.manual_seed(1203)
-    np.random.seed(1203)
-    random.seed(1203)
+    torch.manual_seed(2040)
+    np.random.seed(2040)
+    random.seed(2040)
 
     args = get_args()
     main(args)
