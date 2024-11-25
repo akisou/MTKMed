@@ -20,7 +20,7 @@ def eval_recall(k_list, user_list, items_rank, test_record):
     for k in k_list:
         for user in user_list:
             hit_num = len(set(items_rank[user][:k]) & set(test_record[user]))
-            recall_list[k].append(hit_num / len(set(test_record[user])))
+            recall_list[k].append(hit_num / len(set(test_record[user])) if len(set(test_record[user])) != 0 else 0)
 
     recall = [np.round(np.mean(recall_list[k]), round_num) for k in k_list]
 
