@@ -96,8 +96,8 @@ class MedDataset(Dataset):
         tcols = np.array([[elem + '_hist', elem + '_hist_weight'] for elem in self.tokName]).flatten()
         doctor2hist = dict(zip(doctor_info['doctor_id'], doctor_info[tcols].values))
 
-        label = torch.FloatTensor(ratings['label'].values).to(self.device)
-        ssc = torch.FloatTensor(ratings['satisfying_score'].values).to(self.device)
+        label = torch.FloatTensor(ratings['label'].values).unsqueeze(-1).to(self.device)
+        ssc = torch.FloatTensor(ratings['satisfying_score'].values).unsqueeze(-1).to(self.device)
 
         patient2query = dict(zip(patient_info['patient_id'], patient_info['query']))
         output = []
@@ -135,8 +135,8 @@ class MedDataset(Dataset):
     def collect_ground_truth(subset):
         ground_truth = defaultdict(list)
         for i, (dp, label, ssc) in enumerate(subset):
-            if label.float() == 1.:
-                ground_truth[dp[0][0].long()].append(dp[0][1].long())
+            if label[0].float() == 1.:
+                ground_truth[dp[0][0].long().tolist()].append(dp[0][1].long().tolist())
 
         return ground_truth
 
