@@ -4,7 +4,7 @@ src/models/medicalNer/*
 src/log/*
 data/corpus/*
 data/output/*
-data/input/*
+data/inputs/*
 .idea
 .git
 test.py
