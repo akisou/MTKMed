@@ -1,3 +1,13 @@
+# data files and meaningless files
+src/models/mcBert/*
+src/models/medicalNer/*
+src/log/*
+data/corpus/*
+data/output/*
+data/input/*
+.idea
+.git
+test.py
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
