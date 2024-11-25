@@ -152,6 +152,7 @@ class KGCN(nn.Module):
         user_embeddings = self.user_embedding(users)
         entities, relations = self.get_neighbors(items, adj_entity, adj_relation)
         item_embeddings = self.aggregate(user_embeddings, entities, relations)
+        item_embeddings = torch.squeeze(item_embeddings, dim=1)
         return user_embeddings, item_embeddings
 
 
