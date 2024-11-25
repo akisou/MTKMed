@@ -716,7 +716,7 @@ class Preprocessor:
             id_score = sorted(list(zip(patient_pool, np.squeeze(scores))), key=lambda x: x[1], reverse=True)
             target = id_score[:random.sample(list(range(self.sample_range[0], self.sample_range[1])), 1)[0]]
             target_doctors = self.patient_sampled[
-                self.patient_sampled['patient_id'].isin([elem[0] for elem in target])]['doctor_id'].values
+                self.patient_sampled['patient_id'].isin([elem[0] for elem in target])]['doctor_id'].unique()
             o_dids.append(did)
             o_dids.extend(target_doctors)
             o_pids.extend([pid] * (len(target_doctors) + 1))
