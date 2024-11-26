@@ -233,7 +233,9 @@ def multi_label_metric(y_gt, y_pred, y_prob):
             for j in range(len(sort_index[i])):
                 if y_gt[i, sort_index[i, j]] == 1:
                     TP += 1
-            precision += TP / len(sort_index[i])
+
+            if len(sort_index[i]) != 0:
+                precision += TP / len(sort_index[i])
         return precision / len(y_gt)
 
     # roc_auc
@@ -246,7 +248,7 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     p_3 = precision_at_k(y_gt, y_prob, k=3)
     p_5 = precision_at_k(y_gt, y_prob, k=5)
     # macro f1
-    f1 = f1(y_gt, y_pred)
+    # f1 = f1(y_gt, y_pred)
     # precision
     prauc = precision_auc(y_gt, y_prob)
     # jaccard

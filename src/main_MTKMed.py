@@ -19,8 +19,8 @@ from collections import defaultdict
 
 from models.MTKMed import MTKMed
 from utils.dataloader import MedDataset
-from utils.util import multi_label_metric, ddi_rate_score, get_n_params, create_log_id, logging_config, get_grouped_metrics, \
-    get_model_path, get_pretrained_model_path
+from utils.util import multi_label_metric, ddi_rate_score, get_n_params, create_log_id, logging_config, \
+    get_grouped_metrics, get_model_path, get_pretrained_model_path
 from utils.metric_evaluation import eval_precision, eval_recall, eval_NDCG, eval_MAP, eval_MRR
 
 # Training settings
@@ -28,8 +28,8 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--note', type=str, default='', help="User notes")
     parser.add_argument('--model_name', type=str, default='MTKMed', help="model name")
-    parser.add_argument('--data_path', type=str, default='../data/Med/', help="data path")
-    parser.add_argument('--bert_path', type=str, default='../src/models/mcBert', help="mcBert path")
+    parser.add_argument('--data_path', type=str, default='E://program/PycharmProjects/MTKMed/data/Med/', help="data path")
+    parser.add_argument('--bert_path', type=str, default='E://program/PycharmProjects/MTKMed/src/models/mcBert', help="mcBert path")
     parser.add_argument('--dataset', type=str, default='Med', help='dataset')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop after this many epochs without improvement')
     parser.add_argument('-t', '--test', action='store_true', help="test mode")
@@ -43,7 +43,7 @@ def get_args():
     parser.add_argument('--pretrain_epochs', type=int, default=20, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
 
-    parser.add_argument('--embed_dim', type=int, default=768, help='dimension of node embedding')   # 增大embedding_size, 加快训练速度，但增加了过拟合风险
+    parser.add_argument('--embed_dim', type=int, default=768, help='dimension of node embedding')
     parser.add_argument('--hidden_dim', type=int, default=768, help='hidden_dim of mmoe module')
     parser.add_argument('--mmoe_hidden_dim', type=int, default=768, help='mmoe_hidden_dim')
     parser.add_argument('--num_experts', type=int, default=4, help='expert_num')
@@ -52,20 +52,17 @@ def get_args():
     parser.add_argument('--seq_len_disease', type=int, default=15, help='sequence length of the disease hist token sequence')
     parser.add_argument('--seq_len_evaluation', type=int, default=15, help='sequence length of the evaluation hist token sequence')
     parser.add_argument('--seq_len_symptom', type=int, default=30, help='sequence length of the symptom hist token sequence')
-    parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')   # 增大layers，训练速度不变，性能略提高，继续增大反而会降低性能
-    parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')              # 实验有问题，增加head，训练速度不变，性能略提高
-    parser.add_argument('--split_rate', type=str, default='8:1:1', help='split_rate of train, valid, test dataset')  # 实验有问题，增加head，训练速度不变，性能略提高
-    parser.add_argument('--batch_size', type=int, default=100, help='batch size during training')                     # 增大batch较大影响性能，可看作正则化的一种，batch小，有过拟合风险。
-    parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')         #
-    parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')  #
+    parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')
+    parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')
+    parser.add_argument('--split_rate', type=str, default='8:1:1', help='split_rate of train, valid, test dataset')
+    parser.add_argument('--batch_size', type=int, default=100, help='batch size during training')
+    parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')
+    parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
-    parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')             # 学习率增大容易过拟合，过大则不收敛（loss不怎么下降）
-    parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')    # 严重影响过拟合程度。drop小，训练集loss下降快，但过拟合严重。但drop太大会导致拟合不足，性能下降。
+    parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
+    parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=0.1, help='weight decay')
-    # parser.add_argument('--weight_multi', type=float, default=0.03, help='weight of multilabel_margin_loss')        # 严重影响性能。增大weight_multi会提高药物数量（提高正样本预测值），进而提高ddi rate。增大multi会增大bce loss。性能先上升后下降，0.01以后明显影响性能
-    parser.add_argument('--weight_multi', type=float, default=0.005, help='weight of multilabel_margin_loss')        # 严重影响性能。增大weight_multi会提高药物数量（提高正样本预测值），进而提高ddi rate。增大multi会增大bce loss。性能先上升后下降，0.01以后明显影响性能
-    parser.add_argument('--weight_ddi', type=float, default=0.1, help='weight of ddi loss')         # weight_ddi 越大，loss越高，推荐的药物越少。性能先上升后下降。0.5以上开始明显影响jaccard
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
@@ -141,85 +138,131 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
             Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
     return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
 
+
 @torch.no_grad()
-def evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain'):
+def evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask'):
     model.eval()
     loss_val = 0
     dis_ja_list, dis_prauc_list, dis_p_list, dis_r_list, dis_f1_list = [[] for _ in range(5)]
-    pro_ja_list, pro_prauc_list, pro_p_list, pro_r_list, pro_f1_list = [[] for _ in range(5)]
-    dis_cnt, pro_cnt, visit_cnt = 0, 0, 0     # 统计平均药物数量
-    recommended_drugs = set()
+    eval_ja_list, eval_prauc_list, eval_p_list, eval_r_list, eval_f1_list = [[] for _ in range(5)]
+    sym_ja_list, sym_prauc_list, sym_p_list, sym_r_list, sym_f1_list = [[] for _ in range(5)]
+    dis_cnt, eval_cnt, sym_cnt, visit_cnt = 0, 0, 0, 0
+
     len_val = len(data_val)
-    for batch in tqdm(data_val, ncols=60, desc=mode, total=len_val):
+    for batch_idx, (batch, label_targets, ssc_targets) in tqdm(enumerate(data_val), ncols=60,
+                                                               desc="evaluation_pretrain_mask", total=len(data_val)):
         batch_size = len(batch)
+        batch = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in batch]
         dis_pred, dis_pred_label = [[] for i in range(2)]
-        pro_pred, pro_pred_label = [[] for i in range(2)]
+        eval_pred, eval_pred_label = [[] for i in range(2)]
+        sym_pred, sym_pred_label = [[] for i in range(2)]
         
         result = model(batch, mode)
         dis_gt = np.zeros((batch_size, voc_size[0]))
-        pro_gt = np.zeros((batch_size, voc_size[1]))
-        for i in range(batch_size):
-            dis_gt[i, batch[i][0]] = 1
-            pro_gt[i, batch[i][1]] = 1
-        target = np.concatenate((dis_gt, pro_gt), axis=1)
-        loss = F.binary_cross_entropy_with_logits(result, torch.tensor(target, device=device))
-        loss_val += loss.item()
+        eval_gt = np.zeros((batch_size, voc_size[1]))
+        sym_gt = np.zeros((batch_size, voc_size[2]))
 
         dis_logit = result[:, :voc_size[0]]
-        pro_logit = result[:, voc_size[0]:]
+        eval_logit = result[:, voc_size[0]:voc_size[1] + voc_size[0]]
+        sym_logit = result[:, voc_size[1] + voc_size[0]:]
+
         dis_pred_prob = F.sigmoid(dis_logit).cpu().numpy()
-        pro_pred_prob = F.sigmoid(pro_logit).cpu().numpy()
+        eval_pred_prob = F.sigmoid(eval_logit).cpu().numpy()
+        sym_pred_prob = F.sigmoid(sym_logit).cpu().numpy()
 
         visit_cnt += batch_size
         for i in range(batch_size):
+            sub = [elem.tolist() for elem in batch[i][1:4]]
+            dis_gt[i, sub[0][0]] = 1
+            eval_gt[i, sub[1][0]] = 1
+            sym_gt[i, sub[2][0]] = 1
+
             dis_pred_temp = dis_pred_prob[i].copy()
-            dis_pred_temp[dis_pred_temp>=0.5] = 1
-            dis_pred_temp[dis_pred_temp<0.5] = 0
+            dis_pred_temp[dis_pred_temp >= 0.5] = 1
+            dis_pred_temp[dis_pred_temp < 0.5] = 0
             dis_pred.append(dis_pred_temp)
-            
+
             dis_pred_label_temp = np.where(dis_pred_temp == 1)[0]
             dis_pred_label.append(sorted(dis_pred_label_temp))
-            dis_cnt += len(dis_pred_label_temp)
 
-            pro_pred_temp = pro_pred_prob[i].copy()
-            pro_pred_temp[pro_pred_temp>=0.5] = 1
-            pro_pred_temp[pro_pred_temp<0.5] = 0
-            pro_pred.append(pro_pred_temp)
-            
-            pro_pred_label_temp = np.where(pro_pred_temp == 1)[0]
-            pro_pred_label.append(sorted(pro_pred_label_temp))
-            pro_cnt += len(pro_pred_label_temp)
+            eval_pred_temp = eval_pred_prob[i].copy()
+            eval_pred_temp[eval_pred_temp >= 0.5] = 1
+            eval_pred_temp[eval_pred_temp < 0.5] = 0
+            eval_pred.append(eval_pred_temp)
 
-        
+            eval_pred_label_tmp = np.where(eval_pred_temp == 1)[0]
+            eval_pred.append(sorted(eval_pred_label_tmp))
+
+            sym_pred_temp = sym_pred_prob[i].copy()
+            sym_pred_temp[sym_pred_temp >= 0.5] = 1
+            sym_pred_temp[sym_pred_temp < 0.5] = 0
+            sym_pred.append(sym_pred_temp)
+
+            sym_pred_label_temp = np.where(sym_pred_temp == 1)[0]
+            sym_pred_label.append(sorted(sym_pred_label_temp))
+
+        target = np.concatenate((dis_gt, eval_gt, sym_gt), axis=1)
+        loss = F.binary_cross_entropy_with_logits(result, torch.tensor(target, device=device))
+        loss_val += loss.item()
+
         dis_ja, dis_prauc, dis_avg_p, dis_avg_r, dis_avg_f1 = multi_label_metric(
             np.array(dis_gt), np.array(dis_pred), np.array(dis_pred_prob))
-        pro_ja, pro_prauc, pro_avg_p, pro_avg_r, pro_avg_f1 = multi_label_metric(
-            np.array(pro_gt), np.array(pro_pred), np.array(pro_pred_prob))
-        
+        eval_ja, eval_prauc, eval_avg_p, eval_avg_r, eval_avg_f1 = multi_label_metric(
+            np.array(eval_gt), np.array(eval_pred), np.array(eval_pred_prob))
+        sym_ja, sym_prauc, sym_avg_p, sym_avg_r, sym_avg_f1 = multi_label_metric(
+            np.array(sym_gt), np.array(sym_pred), np.array(sym_pred_prob))
+
         dis_ja_list.append(dis_ja)
         dis_prauc_list.append(dis_prauc)
         dis_p_list.append(dis_avg_p)
         dis_r_list.append(dis_avg_r)
         dis_f1_list.append(dis_avg_f1)
 
-        pro_ja_list.append(pro_ja)
-        pro_prauc_list.append(pro_prauc)
-        pro_p_list.append(pro_avg_p)
-        pro_r_list.append(pro_avg_r)
-        pro_f1_list.append(pro_avg_f1)
+        eval_ja_list.append(eval_ja)
+        eval_prauc_list.append(eval_prauc)
+        eval_p_list.append(eval_avg_p)
+        eval_r_list.append(eval_avg_r)
+        eval_f1_list.append(eval_avg_f1)
 
-        avg_dis_ja, avg_dis_prauc, avg_dis_p, avg_dis_r, avg_dis_f1 = np.mean(dis_ja_list), np.mean(dis_prauc_list), np.mean(dis_p_list), np.mean(dis_r_list), np.mean(dis_f1_list)
-        avg_pro_ja, avg_pro_prauc, avg_pro_p, avg_pro_r, avg_pro_f1 = np.mean(pro_ja_list), np.mean(pro_prauc_list), np.mean(pro_p_list), np.mean(pro_r_list), np.mean(pro_f1_list)
-        avg_ja, avg_prauc, avg_p, avg_r, avg_f1 = (avg_dis_ja+avg_pro_ja)/2, (avg_dis_prauc+avg_pro_prauc)/2, (avg_dis_p+avg_pro_p)/2, (avg_dis_r+avg_pro_r)/2, (avg_dis_f1+avg_pro_f1)/2
-        avg_dis_cnt, avg_pro_cnt = dis_cnt / visit_cnt, pro_cnt / visit_cnt
-        avg_cnt = (avg_dis_cnt+avg_pro_cnt)/2
-    logging.info('Epoch {:03d}   Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_CNT: {:.4}'.format(
-        epoch, avg_ja, avg_prauc, avg_p, avg_r, avg_f1, avg_cnt))
-    logging.info('Epoch {:03d}   DISEASE Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_DIS_CNT: {:.4}'.format(
-        epoch, avg_dis_ja, avg_dis_prauc, avg_dis_p, avg_dis_r, avg_dis_f1, avg_dis_cnt))
-    logging.info('Epoch {:03d}   PROCEDURE Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_PRO_CNT: {:.4}'.format(
-        epoch, avg_pro_ja, avg_pro_prauc, avg_pro_p, avg_pro_r, avg_pro_f1, avg_pro_cnt))
-    return loss_val/len_val, avg_ja, avg_prauc, avg_p, avg_r, avg_f1, avg_cnt
+        sym_ja_list.append(sym_ja)
+        sym_prauc_list.append(sym_prauc)
+        sym_p_list.append(sym_avg_p)
+        sym_r_list.append(sym_avg_r)
+        sym_f1_list.append(sym_avg_f1)
+
+    avg_dis_ja, avg_dis_prauc, avg_dis_p, avg_dis_r, avg_dis_f1 = \
+        np.mean(dis_ja_list), np.mean(dis_prauc_list), np.mean(dis_p_list), \
+        np.mean(dis_r_list), np.mean(dis_f1_list)
+    avg_eval_ja, avg_eval_prauc, avg_eval_p, avg_eval_r, avg_eval_f1 = \
+        np.mean(eval_ja_list), np.mean(eval_prauc_list), np.mean(eval_p_list), \
+        np.mean(eval_r_list), np.mean(eval_f1_list)
+    avg_sym_ja, avg_sym_prauc, avg_sym_p, avg_sym_r, avg_sym_f1 = \
+        np.mean(sym_ja_list), np.mean(sym_prauc_list), np.mean(sym_p_list), \
+        np.mean(sym_r_list), np.mean(sym_f1_list)
+
+    avg_ja, avg_prauc, avg_p, avg_r, avg_f1 = \
+        (avg_dis_ja + avg_eval_ja + avg_sym_ja) / 3, \
+        (avg_dis_prauc + avg_eval_prauc + avg_sym_prauc) / 3, \
+        (avg_dis_p + avg_eval_p + avg_sym_p) / 3, \
+        (avg_dis_r + avg_eval_r + avg_sym_r) / 3, \
+        (avg_dis_f1 + avg_eval_f1 + avg_sym_f1) / 3
+    avg_dis_cnt, avg_eval_cnt, avg_sym_cnt = dis_cnt / visit_cnt, eval_cnt / visit_cnt, sym_cnt / visit_cnt
+    avg_cnt = (avg_dis_cnt + avg_eval_cnt + avg_sym_cnt) / 3
+
+    logging.info(
+        'Epoch {:03d}   Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_CNT: {:.4}'
+        .format(epoch, avg_ja, avg_prauc, avg_p, avg_r, avg_f1, avg_cnt))
+    logging.info('Epoch {:03d}   DISEASE Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_DIS_CNT: {:.4}'
+                 .format(epoch, avg_dis_ja, avg_dis_prauc, avg_dis_p, avg_dis_r, avg_dis_f1, avg_dis_cnt))
+    logging.info(
+        'Epoch {:03d}   Patient Evaluation  Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_PRO_CNT: {:.4}'
+        .format(epoch, avg_eval_ja, avg_eval_prauc, avg_eval_p, avg_eval_r, avg_eval_f1, avg_eval_cnt))
+    logging.info(
+        'Epoch {:03d}   SYMPTOM Jaccard: {:.4}, PRAUC: {:.4}, AVG_PRC: {:.4}, AVG_RECALL: {:.4}, AVG_F1: {:.4}, AVG_DIS_CNT: {:.4}'
+        .format(epoch, avg_sym_ja, avg_sym_prauc, avg_sym_p, avg_sym_r, avg_sym_f1, avg_sym_cnt))
+
+    return loss_val / len_val, avg_ja, avg_prauc, avg_p, avg_r, avg_f1, avg_cnt
+
 
 @torch.no_grad()
 def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
@@ -263,6 +306,7 @@ def random_mask_word(seq, vocab, mask_prob=0.15):
             pass
     return seq
 
+
 # mask batch data
 def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
     for i in range(len(batch_data)):
@@ -271,6 +315,7 @@ def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
         sym = random_mask_word(batch_data[i][3], sym_voc, mask_prob)
         batch_data[i][1:4] = [dis, evalu, sym]
     return batch_data
+
 
 def nsp_batch_data(batch_data, data, neg_sample_rate=1):
     nsp_batch = []
@@ -464,21 +509,28 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
                 masked_batch = inputs
             masked_batch = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in masked_batch]
             result = model(masked_batch, mode='pretrain_mask').view(1, -1)
-            bce_target_dis = np.zeros((batch_size, voc_size[0]))
-            bce_target_pro = np.zeros((batch_size, voc_size[1]))
 
-            for i in range(batch_size):
-                bce_target_dis[i, inputs[i][0]] = 1
-                bce_target_pro[i, inputs[i][1]] = 1
-            bce_target = np.concatenate((bce_target_dis, bce_target_pro), axis=1)
+            bce_target_dis = np.zeros((batch_size, voc_size[0]))
+            bce_target_eval = np.zeros((batch_size, voc_size[1]))
+            bce_target_sym = np.zeros((batch_size, voc_size[2]))
 
             # multi label margin loss
-            multi_target_dis = np.full((1, voc_size[0]), -1)
-            multi_target_pro = np.full((1, voc_size[1]), -1)
+            multi_target_dis = np.full((batch_size, voc_size[0]), -1)
+            multi_target_eval = np.full((batch_size, voc_size[1]), -1)
+            multi_target_sym = np.full((batch_size, voc_size[2]), -1)
             for i in range(batch_size):
-                multi_target_dis[i, 0:len(inputs[i][0])] = inputs[i][0]
-                multi_target_pro[i, 0:len(inputs[i][1])] = inputs[i][1]
-            multi_target = np.concatenate((multi_target_dis, multi_target_pro), axis=1)
+                sub = [elem.tolist() for elem in inputs[i][1:4]]
+                bce_target_dis[i, sub[0][0]] = 1
+                bce_target_eval[i, sub[1][0]] = 1
+                bce_target_sym[i, sub[2][0]] = 1
+
+                multi_target_dis[i, 0:len(sub[0][0])] = sub[0][0]
+                multi_target_eval[i, 0:len(sub[1][0])] = sub[1][0]
+                multi_target_sym[i, 0:len(sub[2][0])] = sub[2][0]
+
+            bce_target = np.concatenate((bce_target_dis, bce_target_eval, bce_target_sym), axis=1)
+
+            multi_target = np.concatenate((multi_target_dis, multi_target_eval, multi_target_sym), axis=1)
 
             loss_bce = F.binary_cross_entropy_with_logits(result, torch.tensor(bce_target).to(device).view(1, -1))
             # loss_multi = F.multilabel_margin_loss(result, torch.LongTensor(multi_target, device=device))
@@ -488,15 +540,18 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
             optimizer.step()
             optimizer.zero_grad()
             loss_train += loss.item()
+
         loss_train /= len(data_train)
         # validation
-        loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = evaluator_mask(model, data_valid, voc_size, epoch, device, mode='pretrain_mask')
+        loss_val, ja, prauc, avg_p, avg_r, avg_f1, avg_cnt = \
+            evaluator_mask(model, data_valid, voc_size, epoch, device, mode='pretrain_mask')
 
         if ja > best_ja_mask:
             best_epoch_mask, best_ja_mask = epoch, ja
         logging.info(f'Training Loss_mask: {loss_train:.4f}, Validation Loss_mask: {loss_val:.4f}, best_ja: {best_ja_mask:.4f} at epoch {best_epoch_mask}\n')
         tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch_mask)
     save_pretrained_model(model, save_dir)
+
 
 def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_dir, log_save_id):
     epoch_nsp = 0
@@ -529,11 +584,13 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
 
     save_pretrained_model(model, save_dir)
 
+
 def save_pretrained_model(model, save_dir):
     # save the pretrained model
     model_path = os.path.join(save_dir, 'saved.pretrained_model')
     torch.save(model.state_dict(), open(model_path, 'wb'))
     logging.info('Pretrained model saved to {}'.format(model_path))
+
 
 def load_pretrained_model(model, model_path):
     # load the pretrained model
@@ -561,12 +618,14 @@ def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_t
         writer.add_scalar(f'Metrics/top{krange[i]}/NDCG', ndcg[i], epoch)
         writer.add_scalar(f'Metrics/top{krange[i]}/MRR', mrr[i], epoch)
 
+
 def tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch):
     writer.add_scalar('Mask/Loss_Train_Mask', loss_train, epoch)
     writer.add_scalar('Mask/Loss_Val_Mask', loss_val, epoch)
     writer.add_scalar('Mask/AUC_Mask', ja, epoch)
     writer.add_scalar('Mask/Precision_Mask', prauc, epoch)
-    
+
+
 def tensorboard_write_nsp(writer, loss_train, loss_val, precision, epoch):
     writer.add_scalar('NSP/Loss_Train_NSP', loss_train, epoch)
     writer.add_scalar('NSP/Loss_Val_NSP', loss_val, epoch)
