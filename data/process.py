@@ -11,8 +11,9 @@
 import os
 import pickle
 import re
+import sys
 import stat
-
+sys.path.append("E://program/PycharmProjects/MTKMed")
 import pandas as pd
 import random
 import operator
@@ -31,16 +32,17 @@ from src.models.medicalNer.MedicalNer import MedicalNerModel
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import MinMaxScaler
 os.chmod('./', stat.S_IRWXU)
-jieba.load_userdict('./corpus/user_dict.txt')
+jieba.load_userdict('E://program/PycharmProjects/MTKMed/data/corpus/user_dict.txt')
 logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=logging.INFO)
 # random.seed(2024)
 class Preprocessor:
     # data preprocess
     def __init__(self):
         self.data_path = 'E://program/PycharmProjects/doctor_recomend/data/haodf'
-        self.root_path = './'
-        self.output_path = './output'
-        self.dataset_path = './Med'
+        self.root_path = 'E://program/PycharmProjects/MTKMed/data/'
+        self.output_path = 'E://program/PycharmProjects/MTKMed/data/output'
+        self.dataset_path = 'E://program/PycharmProjects/MTKMed/data/Med'
+        print(os.getcwd())
         self.corpus_path = os.path.join(self.root_path, 'corpus')
 
         self.doctor_filtered = None
@@ -48,7 +50,7 @@ class Preprocessor:
         self.patient_sampled = None
         self.kg = None
         self.rating = None
-        self.query_emb = None  # self.query_embedding(target='patients_sampled')
+        self.query_emb = self.query_embedding(target='patients_sampled')
         self.doctor_token_hist = None
         self.satisfying_score = None
 
@@ -735,6 +737,7 @@ class Preprocessor:
             'doctor_id': o_dids,
             'type': o_type
         })
+        self.rating = result
         result.to_csv(os.path.join(self.output_path, 'rating.csv'), sep='\t', index=False)
 
     def test(self):
