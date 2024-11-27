@@ -2,6 +2,8 @@
 src/models/mcBert/*
 src/models/medicalNer/*
 src/log/*
+log/*
+log
 data/corpus/*
 data/output/*
 data/input/*
