@@ -430,6 +430,7 @@ def main(args):
     # trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     # total_trainable_params = sum(p.numel() for p in trainable_params)
     # print(total_trainable_params)
+    # print(model.p_encoder.bert.config.max_position_embeddings)
 
     # optimizer initial
     optimizer = Optimizer(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay)
