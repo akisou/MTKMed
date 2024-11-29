@@ -98,7 +98,7 @@ class DoctorEncoder(nn.Module):
         self.seq_len_disease = args.seq_len_disease
         self.seq_len_evaluation = args.seq_len_evaluation
         self.seq_len_symptom = args.seq_len_symptom
-        self.device = torch.device('cuda:{}'.format(args.cuda))
+        self.device = torch.device('cuda:{}'.format(args.cuda)) if args.cuda >=0 else 'cpu'
 
         # self.embeddings = nn.ModuleList(
         #     [nn.Embedding(voc_size[i] + 1, self.emb_dim) for i in range(3)])  # disease, eval_disease, symptom
@@ -337,7 +337,7 @@ class PatientEncoder(torch.nn.Module):
 class MTKMed(nn.Module):
     def __init__(self, args, dataset, voc_size):
         super(MTKMed, self).__init__()
-        self.device = torch.device('cuda:{}'.format(args.cuda))
+        self.device = torch.device('cuda:{}'.format(args.cuda)) if args.cuda >= 0 else 'cpu'
         self.disease_boundaries = dataset.cal_boundaries('cure', args.boundaries_num)
         self.evaluation_boundaries = dataset.cal_boundaries('evaluation', args.boundaries_num)
         self.symptom_boundaries = dataset.cal_boundaries('symptom', args.boundaries_num)
@@ -350,7 +350,7 @@ class MTKMed(nn.Module):
 
         # doctor and patient encoder
         self.d_encoder = DoctorEncoder(args, self.voc_size, boundaries)
-        self.p_encoder = PatientEncoder(args.bert_path)
+        self.p_encoder = PatientEncoder(model_path=args.bert_path, task_specific_dim=args.embed_dim)
         num_users = len(dataset.patient_voc)
         num_entities = len(dataset.ent_voc)  # entities including doctors and other entities
         num_relations = len(dataset.relation_voc)
@@ -369,8 +369,17 @@ class MTKMed(nn.Module):
         self.cls_nsp = nn.Linear(args.embed_dim * 4, 1)
 
         self.mmoe = MMOE(args.embed_dim * 4, args.num_experts, args.hidden_dim, 2)
+
         # loss weight
-        self.weight_ssc = args.weight_ssc
+        # self.weight_ssc = args.weight_ssc
+
+        # grad norm
+        self.grad_norm = True if args.grad_norm > 0 else False
+        # trainable loss weight
+        self.weight_label = nn.Parameter(torch.tensor(1.0)) if args.grad_norm > 0 else None
+        self.weight_ssc = nn.Parameter(torch.tensor(1.0)) if args.grad_norm > 0 else args.weight_ssc
+
+        self.alpha = args.gradnorm_alpha
 
     def forward_finetune(self, inputs):
         # batch info transformed
@@ -383,10 +392,11 @@ class MTKMed(nn.Module):
         # doctor_repr = self.doctor_layer(patient_repr)  # (B,dim)
 
         # patient query emb
-        patient_repr = self.p_encoder(transformed_inputs[4])
+        patient_repr = self.p_encoder(transformed_inputs[4], task_specific=True)
 
         # doctor node kgcn embeding, [B, kg_dim]
-        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation)
+        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation,
+                                                    patient_repr)
 
         # result
         label_result, ssc_result = self.mmoe(torch.cat((doctor_repr, patient_repr_kg,
@@ -419,7 +429,7 @@ class MTKMed(nn.Module):
         # doctor_repr = self.doctor_layer(patient_repr)  # (B,dim)
 
         # patient query emb
-        patient_repr = self.p_encoder(transformed_inputs[4])
+        patient_repr = self.p_encoder(transformed_inputs[4], task_specific=True)
 
         # doctor node kgcn embeding, [B, kg_dim]
         patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation)
@@ -447,12 +457,34 @@ class MTKMed(nn.Module):
             logit = self.forward_nsp(input)
             return logit
 
-    def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets):
+    def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets, target_grad_norm):
         # a loss computer for nsp, mask and fine_tuned
         label_loss = F.binary_cross_entropy(label_scores, label_targets)
         ssc_loss = F.mse_loss(ssc_scores, ssc_targets)
 
-        return label_loss + self.weight_ssc * ssc_loss, label_loss, ssc_loss
+        # grad norm
+        if self.grad_norm:
+            total_loss = self.weight_label * label_loss + self.weight_ssc * ssc_loss
+            # cal gradient of every task
+            grads_label = torch.autograd.grad(label_loss, [self.weight_label], retain_graph=True)[0]
+            grads_ssc = torch.autograd.grad(ssc_loss, [self.weight_ssc], retain_graph=True)[0]
+
+            # L2 norm calculation
+            grad_norm_label = grads_label.norm(2)
+            grad_norm_ssc = grads_ssc.norm(2)
+
+            # balance
+            target_ratio_label = target_grad_norm[0] / grad_norm_label
+            target_ratio_ssc = target_grad_norm[1] / grad_norm_ssc
+
+            # dynamic update
+            with torch.no_grad():
+                self.weight_label *= (1 + self.alpha * (target_ratio_label - 1))
+                self.weight_ssc *= (1 + self.alpha * (target_ratio_ssc - 1))
+        else:
+            total_loss = label_loss + self.weight_ssc * ssc_loss
+
+        return total_loss, label_loss, ssc_loss
 
     def compute_loss_mask(self, ):
         pass

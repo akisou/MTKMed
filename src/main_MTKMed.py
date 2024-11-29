@@ -28,24 +28,28 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--note', type=str, default='', help="User notes")
     parser.add_argument('--model_name', type=str, default='MTKMed', help="model name")
-    parser.add_argument('--data_path', type=str, default='E://program/PycharmProjects/MTKMed/data/Med/', help="data path")
-    parser.add_argument('--bert_path', type=str, default='E://program/PycharmProjects/MTKMed/src/models/mcBert', help="mcBert path")
+    parser.add_argument('--data_path', type=str, default='../data/Med/', help="data path")
+    parser.add_argument('--bert_path', type=str, default='./models/mcBert', help="mcBert path")
     parser.add_argument('--dataset', type=str, default='Med', help='dataset')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop after this many epochs without improvement')
     parser.add_argument('-t', '--test', action='store_true', help="test mode")
     # pretrain的模型参数也是利用log_dir_prefix来确定是哪个log里的模型
     parser.add_argument('-l', '--log_dir_prefix', type=str, default=None, help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None, help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
     # pretrain
-    parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
-    parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
+    parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
+    parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=20, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
+    parser.add_argument('--freeze_layer_num', type=int, default=10, help='freeze the num of former layers of mcbert')
 
-    parser.add_argument('--embed_dim', type=int, default=768, help='dimension of node embedding')
-    parser.add_argument('--hidden_dim', type=int, default=768, help='hidden_dim of mmoe module')
-    parser.add_argument('--mmoe_hidden_dim', type=int, default=768, help='mmoe_hidden_dim')
+    parser.add_argument('--grad_norm', type=int, default=1, help='whether to grad norm for multi task train')
+    parser.add_argument('--gradnorm_alpha', type=float, default=0.2, help='gradnorm alpha when use grad_norm')
+    parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
+    parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
+    parser.add_argument('--hidden_dim', type=int, default=256, help='hidden_dim of mmoe module')
+    parser.add_argument('--mmoe_hidden_dim', type=int, default=256, help='mmoe_hidden_dim')
     parser.add_argument('--num_experts', type=int, default=4, help='expert_num')
     parser.add_argument('--neighbor_sample_size', type=int, default=5, help='neighbor sample num of KGCN')
     parser.add_argument('--n_iter', type=int, default=2, help='num of conv times of KGCN')
@@ -67,7 +71,7 @@ def get_args():
 
     # parameters for ablation study
     parser.add_argument('-s', '--doctor_seperate', action='store_true', help='whether to combine disease, evaluation, symptom')
-    parser.add_argument('-e', '--seg_rel_emb', action='store_false', default = True, help='whether to use segment and relevance embedding layer')
+    parser.add_argument('-e', '--seg_rel_emb', action='store_false', default=True, help='whether to use segment and relevance embedding layer')
 
     args = parser.parse_args()
     return args
@@ -347,7 +351,7 @@ def main(args):
     logging.info(args)
 
     # device choose
-    device = torch.device('cuda:{}'.format(args.cuda))
+    device = torch.device('cuda:{}'.format(args.cuda)) if args.cuda >= 0 else 'cpu'
 
     # load data
     dataset = MedDataset(args.data_path, "cpu")
@@ -408,7 +412,7 @@ def main(args):
         logging.info("load model from %s", model_path)
         rec_results_path = save_dir + '/' + 'rec_results'
 
-        evaluator(args, model, data_test, gt_valid, 0, device, rec_results_path)
+        evaluator(args, model, data_test, gt_test, 0, device, rec_results_path)
         
         return 
     else:
@@ -417,7 +421,18 @@ def main(args):
     # train and validation
     model.to(device)
     logging.info(f'n_parameters:, {get_n_params(model)}')
-    optimizer = Optimizer(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    # freeze the former layers of bert of patient encoder
+    for name, param in model.p_encoder.bert.encoder.named_parameters():
+        if 'layer' in name and int(name.split('.')[1]) < args.freeze_layer_num:
+            param.requires_grad = False
+
+    # trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+    # total_trainable_params = sum(p.numel() for p in trainable_params)
+    # print(total_trainable_params)
+
+    # optimizer initial
+    optimizer = Optimizer(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay)
     logging.info(f'Optimizer: {optimizer}')
 
     if args.pretrain_nsp:
@@ -449,7 +464,7 @@ def main(args):
             label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
             loss_combined, loss_bce_train, loss_ssc_train = model.compute_loss_fine_tuned(
-                rec_result, ssc_result, label_targets, ssc_targets)
+                rec_result, ssc_result, label_targets, ssc_targets, eval(args.initial_gradnorm))
             loss_combined.backward()
 
             optimizer.step()

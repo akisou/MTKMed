@@ -22,6 +22,9 @@ class KGCN(nn.Module):
         self.n_iter = n_iter
         self.aggregator = aggregator
 
+        # whether use the embedding of query
+        self.query_emb = False
+
         # embedding
         self.user_embedding = nn.Embedding(num_users + 2, embedding_dim)
         self.entity_embedding = nn.Embedding(num_entities + 2, embedding_dim)
@@ -141,15 +144,19 @@ class KGCN(nn.Module):
 
         return entity_vectors[0]
 
-    def forward(self, users, items, adj_entity, adj_relation):
+    def forward(self, users, items, adj_entity, adj_relation, user_query_emb=None):
         """
         :param users: (batch_size,)
         :param items: (batch_size,)
         :param adj_entity: adg neighbors
         :param adj_relation: adj relation
+        :param user_query_emb: (batch_size, dim) query embedding of user
         :return: embedding of users and items
         """
-        user_embeddings = self.user_embedding(users)
+        if self.query_emb:
+            user_embeddings = user_query_emb
+        else:
+            user_embeddings = self.user_embedding(users)
         entities, relations = self.get_neighbors(items, adj_entity, adj_relation)
         item_embeddings = self.aggregate(user_embeddings, entities, relations)
         item_embeddings = torch.squeeze(item_embeddings, dim=1)
