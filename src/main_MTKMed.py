@@ -22,6 +22,8 @@ from utils.dataloader import MedDataset
 from utils.util import multi_label_metric, ddi_rate_score, get_n_params, create_log_id, logging_config, \
     get_grouped_metrics, get_model_path, get_pretrained_model_path
 from utils.metric_evaluation import eval_precision, eval_recall, eval_NDCG, eval_MAP, eval_MRR
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+torch.cuda.empty_cache()
 
 # Training settings
 def get_args():
@@ -38,9 +40,10 @@ def get_args():
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None, help='log dir prefix like "log0", for finetune')
     parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
     # pretrain
+
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
-    parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
-    parser.add_argument('--pretrain_epochs', type=int, default=20, help='number of pretrain epochs')
+    parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
+    parser.add_argument('--pretrain_epochs', type=int, default=1, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=10, help='freeze the num of former layers of mcbert')
 
@@ -58,15 +61,15 @@ def get_args():
     parser.add_argument('--seq_len_symptom', type=int, default=30, help='sequence length of the symptom hist token sequence')
     parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')
     parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')
-    parser.add_argument('--split_rate', type=str, default='8:1:1', help='split_rate of train, valid, test dataset')
-    parser.add_argument('--batch_size', type=int, default=100, help='batch size during training')
+    parser.add_argument('--split_rate', type=str, default='7:2:1', help='split_rate of train, valid, test dataset')
+    parser.add_argument('--batch_size', type=int, default=128, help='batch size during training')
     parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
     parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
-    parser.add_argument('--weight_decay', type=float, default=0.1, help='weight decay')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
@@ -94,6 +97,7 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
         # rec_result: 0,1 pred
         # ssc_result: satisfying score pred
         # pred_score: final pred score
+        inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
         rec_result, ssc_result, pred_score = model.score(inputs)
 
         label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
@@ -126,7 +130,7 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
     ndcg = eval_NDCG(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
     mrr = eval_MRR(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
 
-    if args.test:
+    if args.test and epoch == -1:
         os.makedirs(rec_results_path, exist_ok=True)
         dp = np.array([ele.cpu().numpy() for elem in data_valid for ele in elem])
         df = pd.DataFrame({
@@ -135,11 +139,15 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
             'pred_score': pred_all
         })
         df.to_csv(os.path.join(rec_results_path, 'predict.csv'), sep='\t', index=False)
-
-    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
-    for i in range(len(krange)):
-        logging.info(f'''top{krange[i]} of Epoch {epoch:03d} Precision: {precision[i]: .4}, \
-            Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
+        logging.info(f'''Epoch Test, Loss_test: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
+        for i in range(len(krange)):
+            logging.info(f'''top{krange[i]} of Epoch Test, Precision: {precision[i]: .4}, \
+                        Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
+    else:
+        logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
+        for i in range(len(krange)):
+            logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, \
+                Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
     return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
 
 
@@ -279,6 +287,7 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
         # rec_result: 0,1 pred
         # ssc_result: satisfying score pred
         # pred_score: final pred score
+        inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
         result = model.forward_nsp(inputs)
         label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
         loss = model.compute_loss_nsp(result, label_targets)
@@ -287,7 +296,6 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
         label_all.extend(label_targets.cpu().tolist())
         pred_all.extend([True if round(ele2) == ele1 else False for ele1, ele2 in
                          zip(label_targets.cpu().tolist(), result.cpu().tolist())])
-        break
     return np.mean(pred_all), loss_val
 
 
@@ -341,8 +349,8 @@ def nsp_batch_data(batch_data, data, neg_sample_rate=1):
 
 def main(args):
     # set logger
-    if args.test:
-        args.note = 'test of ' + args.log_dir_prefix
+    # if args.test:
+    #     args.note = 'test of ' + args.log_dir_prefix
     log_directory_path = os.path.join('log', args.dataset, args.model_name)
     log_save_id = create_log_id(log_directory_path)
     save_dir = os.path.join(log_directory_path, 'log'+str(log_save_id)+'_'+args.note)
@@ -376,7 +384,7 @@ def main(args):
         data_train,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=3,
+        num_workers=0,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -385,7 +393,7 @@ def main(args):
         data_valid,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=1,
+        num_workers=0,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -394,7 +402,7 @@ def main(args):
         data_test,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=1,
+        num_workers=0,
         pin_memory=True,
         collate_fn=MedDataset.collate_fn_no_padding
     )
@@ -404,19 +412,20 @@ def main(args):
     model = MTKMed(args, dataset, voc_size)
     logging.info(model)
 
-    # test
-    if args.test:
-        model_path = get_model_path(log_directory_path, args.log_dir_prefix)
-        model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device))
-        model.to(device)
-        logging.info("load model from %s", model_path)
-        rec_results_path = save_dir + '/' + 'rec_results'
-
-        evaluator(args, model, data_test, gt_test, 0, device, rec_results_path)
-        
-        return 
-    else:
-        writer = SummaryWriter(save_dir)  # 自动生成log文件夹
+    # # test
+    # if args.test:
+    #     # model_path = get_model_path(log_directory_path, args.log_dir_prefix)
+    #     # model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device))
+    #     # model.to(device)
+    #     # logging.info("load model from %s", model_path)
+    #     rec_results_path = save_dir + '/' + 'rec_results'
+    #
+    #     # evaluator(args, model, data_test, gt_test, 0, device, rec_results_path)
+    #
+    #     # return
+    # else:
+    rec_results_path = save_dir + '/' + 'rec_results'
+    writer = SummaryWriter(save_dir)  # 自动生成log文件夹
 
     # train and validation
     model.to(device)
@@ -501,7 +510,13 @@ def main(args):
     logging.info('Train finished')
     torch.save(best_model_state, open(os.path.join(save_dir,
                                                    'Epoch_{}_auc_{:.4}.model'.format(best_epoch, best_auc)), 'wb'))
-
+    # test
+    model.load_state_dict(best_model_state)
+    model.to(device)
+    loss_test, loss_bce_test, loss_ssc_test, auc, f1, precision, recall, ndcg, mrr = \
+        evaluator(args, model, data_test, gt_test, -1, device, rec_results_path)
+    tensorboard_write(writer, args, 0, 0, 0, loss_test, loss_bce_test, loss_ssc_test,
+                      auc, f1, precision, recall, ndcg, mrr, -1)
 
 def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, voc_size, device, save_dir,
                   log_save_id):
@@ -566,6 +581,7 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
             best_epoch_mask, best_ja_mask = epoch, ja
         logging.info(f'Training Loss_mask: {loss_train:.4f}, Validation Loss_mask: {loss_val:.4f}, best_ja: {best_ja_mask:.4f} at epoch {best_epoch_mask}\n')
         tensorboard_write_mask(writer, loss_train, loss_val, ja, prauc, epoch_mask)
+
     save_pretrained_model(model, save_dir)
 
 
@@ -616,7 +632,7 @@ def load_pretrained_model(model, model_path):
 
 def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_train=0., loss_val=0., loss_bce_val=0.,
                       loss_ssc_val=0., auc=0., f1=0., precision=None, recall=None, ndcg=None, mrr=None, epoch=0):
-    if epoch > 0:
+    if epoch >= 0:
         writer.add_scalar('Loss_Train/all', loss_train, epoch)
         writer.add_scalar('Loss_Train/bce', loss_bce_train, epoch)
         writer.add_scalar('Loss_Train/ssc', loss_ssc_train, epoch)
@@ -624,7 +640,10 @@ def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_t
         writer.add_scalar('Loss_Val/all', loss_val, epoch)
         writer.add_scalar('Loss_Val/bce', loss_bce_val, epoch)
         writer.add_scalar('Loss_Val/ssc', loss_ssc_val, epoch)
-
+    else:
+        writer.add_scalar('Loss_Test/all', loss_val, epoch)
+        writer.add_scalar('Loss_Test/bce', loss_bce_val, epoch)
+        writer.add_scalar('Loss_Test/ssc', loss_ssc_val, epoch)
     writer.add_scalar('Metrics/AUC', auc, epoch)
     writer.add_scalar('Metrics/F1', f1, epoch)
     krange = eval(args.topk_range)

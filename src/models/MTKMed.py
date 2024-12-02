@@ -395,8 +395,8 @@ class MTKMed(nn.Module):
         patient_repr = self.p_encoder(transformed_inputs[4], task_specific=True)
 
         # doctor node kgcn embeding, [B, kg_dim]
-        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation,
-                                                    patient_repr)
+        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity.to(self.device),
+                                                    self.adj_relation.to(self.device), patient_repr)
 
         # result
         label_result, ssc_result = self.mmoe(torch.cat((doctor_repr, patient_repr_kg,
@@ -432,7 +432,8 @@ class MTKMed(nn.Module):
         patient_repr = self.p_encoder(transformed_inputs[4], task_specific=True)
 
         # doctor node kgcn embeding, [B, kg_dim]
-        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1], self.adj_entity, self.adj_relation)
+        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1],self.adj_entity.to(self.device),
+                                                    self.adj_relation.to(self.device), patient_repr)
 
         repr = torch.cat((doctor_repr, doctor_repr_kg, patient_repr, doctor_repr_kg), dim=-1)
 
