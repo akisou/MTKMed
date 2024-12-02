@@ -101,7 +101,7 @@ class MedDataset(Dataset):
 
         patient2query = dict(zip(patient_info['patient_id'], patient_info['query']))
         output = []
-        rpad = tqdm.tqdm(range(len(ratings[:200])))
+        rpad = tqdm.tqdm(range(len(ratings)))
         rpad.set_description('construct dataset: ')
         for i in rpad:
             tmp = [torch.LongTensor(ratings.loc[i, ['patient_id', 'doctor_id']]).to(self.device)]

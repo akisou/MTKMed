@@ -38,7 +38,7 @@ def get_args():
     # pretrain的模型参数也是利用log_dir_prefix来确定是哪个log里的模型
     parser.add_argument('-l', '--log_dir_prefix', type=str, default=None, help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None, help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
     # pretrain
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
@@ -67,7 +67,7 @@ def get_args():
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
-    parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
