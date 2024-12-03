@@ -67,7 +67,7 @@ def get_args():
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=1e-3, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
@@ -434,8 +434,12 @@ def main(args):
 
     # freeze the former layers of bert of patient encoder
     for name, param in model.p_encoder.bert.encoder.named_parameters():
-        if 'layer' in name and int(name.split('.')[1]) < args.freeze_layer_num:
+        if 'layer' in name and int(name.split('.')[1]) < args.freeze_layer_num :
             param.requires_grad = False
+
+    # bert embeddings freeze
+    for name, param in model.p_encoder.bert.embeddings.named_parameters():
+        param.requires_grad = False
 
     # trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     # total_trainable_params = sum(p.numel() for p in trainable_params)
@@ -479,6 +483,10 @@ def main(args):
 
             optimizer.zero_grad()
             loss_combined.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f'{name}: {param.grad.norm()}')
             optimizer.step()
 
             train_loss += loss_combined
@@ -571,6 +579,10 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f'{name}: {param.grad.norm()}')
             optimizer.step()
             loss_train += loss.item()
 
@@ -603,11 +615,15 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
             result = model(inputs, mode='pretrain_nsp')
             label_targets = torch.stack(label_targets, dim=0).to(device)
             loss = model.compute_loss_nsp(result, label_targets)
+
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f'{name}: {param.grad.norm()}')
             optimizer.step()
             loss_train += loss
-            break
         loss_train /= len(data_train)
         # validation
         precision, loss_val = evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp')
