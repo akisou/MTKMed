@@ -60,8 +60,9 @@ class LearnableFrequencyEncoder(nn.Module):
 
         # frequency embedding layer
         self.frequency_embedding = nn.Embedding(len(boundaries) + 2, dim)
-        self.initrange = 0.1
-        self.frequency_embedding.weight.data.uniform_(-self.initrange, self.initrange)
+        # self.initrange = 0.1
+        # self.frequency_embedding.weight.data.uniform_(-self.initrange, self.initrange)
+        nn.init.xavier_uniform_(self.frequency_embedding.weight)
 
     def get_boundary_idx(self, inputs):
         """
@@ -301,6 +302,9 @@ class PatientEncoder(torch.nn.Module):
         # add a specific layer
         if task_specific_dim:
             self.task_layer = torch.nn.Linear(self.bert.config.hidden_size, task_specific_dim)
+            # self.initrange = 0.1
+            # self.task_layer.weight.data.uniform_(-self.initrange, self.initrange)
+            nn.init.xavier_uniform_(self.task_layer.weight)
         else:
             self.task_layer = None
 
@@ -360,13 +364,11 @@ class MTKMed(nn.Module):
 
         # self.doctor_layer = Adapter(self.emb_dim, args.adapter_dim)
 
-        self.init_weights()
-
         # self.mask_adapter = Adapter(self.emb_dim, args.adapter_dim)
         self.cls_mask = nn.Linear(args.embed_dim, self.voc_size[0]+self.voc_size[1]+self.voc_size[2])
 
         # self.nsp_adapter = Adapter(self.emb_dim, args.adapter_dim)
-        self.cls_nsp = nn.Linear(args.embed_dim * 4, 1)
+        self.cls_nsp = nn.Linear(args.embed_dim * 2, 1)
 
         self.mmoe = MMOE(args.embed_dim * 4, args.num_experts, args.hidden_dim, 2)
 
@@ -380,6 +382,8 @@ class MTKMed(nn.Module):
         self.weight_ssc = nn.Parameter(torch.tensor(1.0)) if args.grad_norm > 0 else args.weight_ssc
 
         self.alpha = args.gradnorm_alpha
+
+        self.init_weights()
 
     def forward_finetune(self, inputs):
         # batch info transformed
@@ -402,7 +406,7 @@ class MTKMed(nn.Module):
         label_result, ssc_result = self.mmoe(torch.cat((doctor_repr, patient_repr_kg,
                                                         patient_repr, patient_repr_kg), dim=-1))  #(B, doctor_dim + patient_dim + kg_dim * 2)
         # sigmoid
-        label_result = F.sigmoid(label_result)   # (B,)
+        # label_result = F.sigmoid(label_result)   # (B,)
         ssc_result = F.sigmoid(ssc_result)  # (B,)
 
         return label_result, ssc_result
@@ -432,15 +436,16 @@ class MTKMed(nn.Module):
         patient_repr = self.p_encoder(transformed_inputs[4], task_specific=True)
 
         # doctor node kgcn embeding, [B, kg_dim]
-        patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1],self.adj_entity.to(self.device),
-                                                    self.adj_relation.to(self.device), patient_repr)
+        # patient_repr_kg, doctor_repr_kg = self.kgcn(batch_dp[:, 0], batch_dp[:, 1],self.adj_entity.to(self.device),
+        #                                             self.adj_relation.to(self.device), patient_repr)
 
-        repr = torch.cat((doctor_repr, doctor_repr_kg, patient_repr, doctor_repr_kg), dim=-1)
+        # repr = torch.cat((doctor_repr, doctor_repr_kg, patient_repr, doctor_repr_kg), dim=-1)
+        repr = torch.cat((doctor_repr, patient_repr), dim=-1)
 
-        result = self.cls_nsp(repr)  # (B, 1)
-        result = result.squeeze(dim=1)  # (B,)
-        logit = F.sigmoid(result)
-        return logit
+        result = torch.tanh(self.cls_nsp(repr))  # (B, 1)
+        # result = result.squeeze(dim=1)  # (B,)
+        # logit = F.sigmoid(result)
+        return result
 
     def forward(self, input, mode='fine-tune'):
         assert mode in ['fine-tune', 'pretrain_mask', 'pretrain_nsp']
@@ -460,19 +465,23 @@ class MTKMed(nn.Module):
 
     def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets, target_grad_norm):
         # a loss computer for nsp, mask and fine_tuned
-        label_loss = F.binary_cross_entropy(label_scores, label_targets)
+        label_loss = F.binary_cross_entropy_with_logits(label_scores, label_targets)
         ssc_loss = F.mse_loss(ssc_scores, ssc_targets)
 
         # grad norm
         if self.grad_norm:
-            total_loss = self.weight_label * label_loss + self.weight_ssc * ssc_loss
-            # cal gradient of every task
-            grads_label = torch.autograd.grad(label_loss, [self.weight_label], retain_graph=True)[0]
-            grads_ssc = torch.autograd.grad(ssc_loss, [self.weight_ssc], retain_graph=True)[0]
+            total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
+
+            # # cal gradient of every task
+            # grads_label = torch.autograd.grad(label_loss, [self.weight_label], retain_graph=True)[0]
+            # grads_ssc = torch.autograd.grad(ssc_loss, [self.weight_ssc], retain_graph=True)[0]
+
+            # cal gradient
+            total_loss.backward()
 
             # L2 norm calculation
-            grad_norm_label = grads_label.norm(2)
-            grad_norm_ssc = grads_ssc.norm(2)
+            grad_norm_label = self.weight_label.grad.norm(2)
+            grad_norm_ssc = self.weight_ssc.grad.norm(2)
 
             # balance
             target_ratio_label = target_grad_norm[0] / grad_norm_label
@@ -491,7 +500,7 @@ class MTKMed(nn.Module):
         pass
 
     def compute_loss_nsp(self, label_scores, targets):
-        return F.binary_cross_entropy(label_scores, targets)
+        return F.binary_cross_entropy_with_logits(label_scores, targets)
 
     def score(self, inputs):
         # a function to get the final score of recommendation score
@@ -502,10 +511,22 @@ class MTKMed(nn.Module):
 
     def init_weights(self):
         """Initialize embedding weights."""
-        initrange = 0.1
-        self.d_encoder.embeddings[0].weight.data.uniform_(-initrange, initrange)      # disease
-        self.d_encoder.embeddings[1].weight.data.uniform_(-initrange, initrange)      # evaluation
-        self.d_encoder.embeddings[2].weight.data.uniform_(-initrange, initrange)      # symptom
+        # initrange = 0.1
+        #
+        # self.d_encoder.embeddings[0].weight.data.uniform_(-initrange, initrange)      # disease
+        # self.d_encoder.embeddings[1].weight.data.uniform_(-initrange, initrange)      # evaluation
+        # self.d_encoder.embeddings[2].weight.data.uniform_(-initrange, initrange)      # symptom
+        #
+        # self.d_encoder.segment_embedding.weight.data.uniform_(-initrange, initrange)
+        # self.d_encoder.special_embeddings.weight.data.uniform_(-initrange, initrange)
+        # self.d_encoder.frequency_embedding_layer_evaluation.weight.data.uniform_(-initrange, initrange)
 
-        self.d_encoder.segment_embedding.weight.data.uniform_(-initrange, initrange)
-        self.d_encoder.special_embeddings.weight.data.uniform_(-initrange, initrange)
+        # xavier
+        nn.init.xavier_uniform_(self.d_encoder.embeddings[0].weight)  # disease
+        nn.init.xavier_uniform_(self.d_encoder.embeddings[1].weight)  # evaluation
+        nn.init.xavier_uniform_(self.d_encoder.embeddings[2].weight)  # symptom
+
+        nn.init.xavier_uniform_(self.d_encoder.segment_embedding.weight)
+        nn.init.xavier_uniform_(self.d_encoder.special_embeddings.weight)
+        nn.init.xavier_uniform_(self.cls_nsp.weight)
+        nn.init.xavier_uniform_(self.cls_mask.weight)

@@ -39,6 +39,11 @@ class MMOE(nn.Module):
             nn.Linear(hidden_dim, 1) for _ in range(num_tasks)
         ])
 
+        # init
+        self.expert_layers.apply(self.init_weights)
+        self.gate_layers.apply(self.init_weights)
+        self.task_layers.apply(self.init_weights)
+
     def forward(self, input_embed):
         """
         :param input_embed: inputs [batch_size, dim]
@@ -60,6 +65,13 @@ class MMOE(nn.Module):
             task_outputs.append(task_output.squeeze(-1))
 
         return task_outputs  # list(2 * [batch_size, ])
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)  # Xavier
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+
 
 # 示例用法
 if __name__ == "__main__":

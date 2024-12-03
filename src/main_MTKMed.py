@@ -38,11 +38,11 @@ def get_args():
     # pretrain的模型参数也是利用log_dir_prefix来确定是哪个log里的模型
     parser.add_argument('-l', '--log_dir_prefix', type=str, default=None, help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None, help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
     # pretrain
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
-    parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
+    parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=1, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=10, help='freeze the num of former layers of mcbert')
@@ -69,7 +69,7 @@ def get_args():
 
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
+    parser.add_argument('--weight_decay', type=float, default=1e-3, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
@@ -100,8 +100,8 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
         inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
         rec_result, ssc_result, pred_score = model.score(inputs)
 
-        label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
-        ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
+        label_targets = torch.stack(label_targets, dim=0).to(device)
+        ssc_targets = torch.stack(ssc_targets, dim=0).to(device)
         loss_combined, loss_bce_s, loss_ssc_s = model.compute_loss_fine_tuned(rec_result, ssc_result,
                                                                               label_targets, ssc_targets)
         train_loss += loss_combined
@@ -281,7 +281,7 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
     model.eval()
     loss_val = 0
     pred_all = []
-    label_all = []
+    # label_all = []
     for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_val), ncols=60, desc="evaluation",
                                                                 total=len(data_val)):
         # rec_result: 0,1 pred
@@ -289,13 +289,14 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
         # pred_score: final pred score
         inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
         result = model.forward_nsp(inputs)
-        label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
+        label_targets = torch.stack(label_targets, dim=0).to(device)
         loss = model.compute_loss_nsp(result, label_targets)
         loss_val += loss
 
-        label_all.extend(label_targets.cpu().tolist())
-        pred_all.extend([True if round(ele2) == ele1 else False for ele1, ele2 in
-                         zip(label_targets.cpu().tolist(), result.cpu().tolist())])
+        # label_all.extend(label_targets.cpu().tolist())
+        label_cpu = label_targets.squeeze().cpu().tolist()
+        result_cpu = F.sigmoid(result).squeeze().cpu().tolist()
+        pred_all.extend([True if round(ele2) == ele1 else False for ele1, ele2 in zip(label_cpu, result_cpu)])
     return np.mean(pred_all), loss_val
 
 
@@ -475,10 +476,10 @@ def main(args):
             ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
             loss_combined, loss_bce_train, loss_ssc_train = model.compute_loss_fine_tuned(
                 rec_result, ssc_result, label_targets, ssc_targets, eval(args.initial_gradnorm))
-            loss_combined.backward()
 
-            optimizer.step()
             optimizer.zero_grad()
+            loss_combined.backward()
+            optimizer.step()
 
             train_loss += loss_combined
             loss_bce += loss_bce_train
@@ -567,9 +568,10 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
             # loss_multi = F.multilabel_margin_loss(result, torch.LongTensor(multi_target, device=device))
             # loss = (1 - args.weight_multi) * loss_bce + args.weight_multi * loss_multi
             loss = loss_bce
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
             loss_train += loss.item()
 
         loss_train /= len(data_train)
@@ -599,12 +601,13 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="pretrain_nsp", total=len(data_train)):
             inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
             result = model(inputs, mode='pretrain_nsp')
-            label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
+            label_targets = torch.stack(label_targets, dim=0).to(device)
             loss = model.compute_loss_nsp(result, label_targets)
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            optimizer.zero_grad()
             loss_train += loss
+            break
         loss_train /= len(data_train)
         # validation
         precision, loss_val = evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp')

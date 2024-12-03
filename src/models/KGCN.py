@@ -39,6 +39,21 @@ class KGCN(nn.Module):
         self.ReLU = nn.ReLU()
         self.Tanh = nn.Tanh()
 
+        # self.initrange = 0.1
+        # self.user_embedding.weight.data.uniform_(-self.initrange, self.initrange)
+        # self.entity_embedding.weight.data.uniform_(-self.initrange, self.initrange)
+        # self.relation_embedding.weight.data.uniform_(-self.initrange, self.initrange)
+        nn.init.xavier_uniform_(self.user_embedding.weight)
+        nn.init.xavier_uniform_(self.entity_embedding.weight)
+        nn.init.xavier_uniform_(self.relation_embedding.weight)
+        self.linear_layers.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)  # Xavier
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+
     def construct_adj(self, kg_triples, num_entities):
         """
         :param kg_triples: (num_triples, 3)， every row is (head, relation, tail)
