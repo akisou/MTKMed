@@ -429,7 +429,7 @@ def main(args):
     writer = SummaryWriter(save_dir)  # 自动生成log文件夹
 
     # load state dict
-    model_path = '/data/coding/wuxiaonan/MTKMed/src/log/Med/MTKMed/log1_/pretrained_models/nsp/saved.pretrained_model'
+    model_path = 'E://program/PycharmProjects/MTKMed/pretrained_models/nsp/saved.pretrained_model'
     model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
 
     # train and validation
@@ -530,6 +530,7 @@ def main(args):
         evaluator(args, model, data_test, gt_test, -1, device, rec_results_path)
     tensorboard_write(writer, args, 0, 0, 0, loss_test, loss_bce_test, loss_ssc_test,
                       auc, f1, precision, recall, ndcg, mrr, -1)
+
 
 def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, voc_size, device, save_dir,
                   log_save_id):
@@ -692,9 +693,9 @@ def tensorboard_write_nsp(writer, loss_train, loss_val, precision, epoch):
 
 if __name__ == '__main__':
     sys.path.append("..")
-    # torch.manual_seed(2024)
-    # np.random.seed(2024)
-    # random.seed(2024)
+    torch.manual_seed(2040)
+    np.random.seed(20240)
+    random.seed(2040)
 
     args = get_args()
     main(args)
