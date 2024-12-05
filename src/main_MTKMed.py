@@ -30,8 +30,8 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--note', type=str, default='', help="User notes")
     parser.add_argument('--model_name', type=str, default='MTKMed', help="model name")
-    parser.add_argument('--data_path', type=str, default='../data/Med/', help="data path")
-    parser.add_argument('--bert_path', type=str, default='./models/mcBert', help="mcBert path")
+    parser.add_argument('--data_path', type=str, default='E://program/PycharmProjects/MTKMed/data/Med/', help="data path")
+    parser.add_argument('--bert_path', type=str, default='E://program/PycharmProjects/MTKMed/src/models/mcBert', help="mcBert path")
     parser.add_argument('--dataset', type=str, default='Med', help='dataset')
     parser.add_argument('--early_stop', type=int, default=10, help='early stop after this many epochs without improvement')
     parser.add_argument('-t', '--test', action='store_true', help="test mode")
@@ -43,7 +43,7 @@ def get_args():
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
     parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
-    parser.add_argument('--pretrain_epochs', type=int, default=1, help='number of pretrain epochs')
+    parser.add_argument('--pretrain_epochs', type=int, default=60, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=10, help='freeze the num of former layers of mcbert')
 
@@ -68,8 +68,8 @@ def get_args():
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
     parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
-    parser.add_argument('--dropout', type=float, default=0.3, help='dropout probability of transformer encoder')
-    parser.add_argument('--weight_decay', type=float, default=1e-3, help='weight decay')
+    parser.add_argument('--dropout', type=float, default=0.2, help='dropout probability of transformer encoder')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
@@ -428,6 +428,10 @@ def main(args):
     rec_results_path = save_dir + '/' + 'rec_results'
     writer = SummaryWriter(save_dir)  # 自动生成log文件夹
 
+    # load state dict
+    model_path = '/data/coding/wuxiaonan/MTKMed/src/log/Med/MTKMed/log1_/pretrained_models/nsp/saved.pretrained_model'
+    model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
+
     # train and validation
     model.to(device)
     logging.info(f'n_parameters:, {get_n_params(model)}')
@@ -466,7 +470,7 @@ def main(args):
     best_model_state = None
     for epoch in range(EPOCH):
         epoch += 1
-        logging.info(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}')
+        logging.info(f'epoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}')
         train_loss = 0
         loss_bce = 0
         loss_ssc = 0
@@ -534,7 +538,7 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
     EPOCH = args.pretrain_epochs
     for epoch in range(EPOCH):
         epoch += 1
-        logging.info(f'\nepoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_mask')
+        logging.info(f'epoch {epoch} --------------------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_mask')
 
         # mask pretrain
         model.train()
@@ -605,7 +609,7 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
     EPOCH = args.pretrain_epochs
     for epoch in range(EPOCH):
         epoch += 1
-        logging.info(f'\nepoch {epoch} -------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_nsp')
+        logging.info(f'epoch {epoch} -------------model_name={args.model_name}, logger={log_save_id}, mode=pretrain_nsp')
 
         model.train()
         epoch_nsp += 1
@@ -688,9 +692,9 @@ def tensorboard_write_nsp(writer, loss_train, loss_val, precision, epoch):
 
 if __name__ == '__main__':
     sys.path.append("..")
-    torch.manual_seed(2040)
-    np.random.seed(2040)
-    random.seed(2040)
+    # torch.manual_seed(2024)
+    # np.random.seed(2024)
+    # random.seed(2024)
 
     args = get_args()
     main(args)

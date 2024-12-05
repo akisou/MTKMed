@@ -441,8 +441,10 @@ class MTKMed(nn.Module):
 
         # repr = torch.cat((doctor_repr, doctor_repr_kg, patient_repr, doctor_repr_kg), dim=-1)
         repr = torch.cat((doctor_repr, patient_repr), dim=-1)
+        # repr = torch.sum(doctor_repr * patient_repr, dim=1, keepdim=True)
 
-        result = torch.tanh(self.cls_nsp(repr))  # (B, 1)
+        result = self.cls_nsp(repr)
+        # result = torch.tanh(result)
         # result = result.squeeze(dim=1)  # (B,)
         # logit = F.sigmoid(result)
         return result
