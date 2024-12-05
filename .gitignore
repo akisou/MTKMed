@@ -4,6 +4,8 @@ src/models/medicalNer/*
 src/log/*
 log/*
 log
+pretrained_models
+pretrained_models/*
 data/corpus/*
 data/output/*
 data/input/*
