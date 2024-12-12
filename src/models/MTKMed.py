@@ -403,8 +403,8 @@ class MTKMed(nn.Module):
                                                     self.adj_relation.to(self.device), patient_repr)
 
         # result
-        label_result, ssc_result = self.mmoe(torch.cat((doctor_repr, patient_repr_kg,
-                                                        patient_repr, patient_repr_kg), dim=-1))  #(B, doctor_dim + patient_dim + kg_dim * 2)
+        label_result, ssc_result = self.mmoe(torch.cat((doctor_repr, doctor_repr_kg,
+                                                        patient_repr), dim=-1))  #(B, doctor_dim + patient_dim + kg_dim * 2)
         # sigmoid
         # label_result = F.sigmoid(label_result)   # (B,)
         ssc_result = F.sigmoid(ssc_result)  # (B,)
@@ -443,8 +443,7 @@ class MTKMed(nn.Module):
         repr = torch.cat((doctor_repr, patient_repr), dim=-1)
         # repr = torch.sum(doctor_repr * patient_repr, dim=1, keepdim=True)
 
-        result = self.cls_nsp(repr)
-        # result = torch.tanh(result)
+        result = torch.tanh(self.cls_nsp(repr))  # (B, 1)
         # result = result.squeeze(dim=1)  # (B,)
         # logit = F.sigmoid(result)
         return result

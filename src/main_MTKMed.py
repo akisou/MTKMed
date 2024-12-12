@@ -33,21 +33,26 @@ def get_args():
     parser.add_argument('--data_path', type=str, default='E://program/PycharmProjects/MTKMed/data/Med/', help="data path")
     parser.add_argument('--bert_path', type=str, default='E://program/PycharmProjects/MTKMed/src/models/mcBert', help="mcBert path")
     parser.add_argument('--dataset', type=str, default='Med', help='dataset')
-    parser.add_argument('--early_stop', type=int, default=10, help='early stop after this many epochs without improvement')
+    parser.add_argument('--early_stop', type=int, default=10,
+                        help='early stop after this many epochs without improvement')
     parser.add_argument('-t', '--test', action='store_true', help="test mode")
-    # pretrain的模型参数也是利用log_dir_prefix来确定是哪个log里的模型
-    parser.add_argument('-l', '--log_dir_prefix', type=str, default=None, help='log dir prefix like "log0", for model test')
-    parser.add_argument('-p', '--pretrain_prefix', type=str, default=None, help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
+    parser.add_argument('-l', '--log_dir_prefix', type=str, default=None,
+                        help='log dir prefix like "log0", for model test')
+    parser.add_argument('-p', '--pretrain_prefix', type=str, default=None,
+                        help='log dir prefix like "log0", for finetune')
+    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
     # pretrain
 
+    parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
+    parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
+    parser.add_argument('--pretrain_epochs', type=int, default=300, help='number of pretrain epochs')
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
     parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=60, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
-    parser.add_argument('--freeze_layer_num', type=int, default=10, help='freeze the num of former layers of mcbert')
+    parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
-    parser.add_argument('--grad_norm', type=int, default=1, help='whether to grad norm for multi task train')
+    parser.add_argument('--grad_norm', type=int, default=0, help='whether to grad norm for multi task train')
     parser.add_argument('--gradnorm_alpha', type=float, default=0.2, help='gradnorm alpha when use grad_norm')
     parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
     parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
@@ -56,25 +61,30 @@ def get_args():
     parser.add_argument('--num_experts', type=int, default=4, help='expert_num')
     parser.add_argument('--neighbor_sample_size', type=int, default=5, help='neighbor sample num of KGCN')
     parser.add_argument('--n_iter', type=int, default=2, help='num of conv times of KGCN')
-    parser.add_argument('--seq_len_disease', type=int, default=15, help='sequence length of the disease hist token sequence')
-    parser.add_argument('--seq_len_evaluation', type=int, default=15, help='sequence length of the evaluation hist token sequence')
-    parser.add_argument('--seq_len_symptom', type=int, default=30, help='sequence length of the symptom hist token sequence')
+    parser.add_argument('--seq_len_disease', type=int, default=15,
+                        help='sequence length of the disease hist token sequence')
+    parser.add_argument('--seq_len_evaluation', type=int, default=15,
+                        help='sequence length of the evaluation hist token sequence')
+    parser.add_argument('--seq_len_symptom', type=int, default=30,
+                        help='sequence length of the symptom hist token sequence')
     parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')
     parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')
-    parser.add_argument('--split_rate', type=str, default='7:2:1', help='split_rate of train, valid, test dataset')
+    parser.add_argument('--split_rate', type=str, default='6:2:2', help='split_rate of train, valid, test dataset')
     parser.add_argument('--batch_size', type=int, default=128, help='batch size during training')
     parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
-    parser.add_argument('--lr', type=float, default=1e-5, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.2, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
 
     # parameters for ablation study
-    parser.add_argument('-s', '--doctor_seperate', action='store_true', help='whether to combine disease, evaluation, symptom')
-    parser.add_argument('-e', '--seg_rel_emb', action='store_false', default=True, help='whether to use segment and relevance embedding layer')
+    parser.add_argument('-s', '--doctor_seperate', action='store_true',
+                        help='whether to combine disease, evaluation, symptom')
+    parser.add_argument('-e', '--seg_rel_emb', action='store_false', default=True,
+                        help='whether to use segment and relevance embedding layer')
 
     args = parser.parse_args()
     return args
@@ -413,6 +423,9 @@ def main(args):
     model = MTKMed(args, dataset, voc_size)
     logging.info(model)
 
+    model_path = '../pretrained_models/nsp/saved.pretrained_model'
+    model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
+
     # # test
     # if args.test:
     #     # model_path = get_model_path(log_directory_path, args.log_dir_prefix)
@@ -486,16 +499,18 @@ def main(args):
                 rec_result, ssc_result, label_targets, ssc_targets, eval(args.initial_gradnorm))
 
             optimizer.zero_grad()
-            loss_combined.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         print(f'{name}: {param.grad.norm()}')
+            if args.grad_norm < 1:
+                loss_combined.backward()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss_combined
             loss_bce += loss_bce_train
             loss_ssc += loss_ssc_train
+
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f'{name}: {param.grad.norm()}')
 
         avg_train_loss = train_loss / len(data_train)
         avg_loss_bce = loss_bce / len(data_train)
@@ -584,12 +599,13 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         print(f'{name}: {param.grad.norm()}')
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             loss_train += loss.item()
+
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f'{name}: {param.grad.norm()}')
 
         loss_train /= len(data_train)
         # validation
@@ -623,12 +639,14 @@ def main_nsp(args, model, optimizer, writer, data_train, data_val, device, save_
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         print(f'{name}: {param.grad.norm()}')
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             loss_train += loss
+
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f'{name}: {param.grad.norm()}')
+
         loss_train /= len(data_train)
         # validation
         precision, loss_val = evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp')
