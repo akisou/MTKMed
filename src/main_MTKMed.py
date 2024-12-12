@@ -30,8 +30,8 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--note', type=str, default='', help="User notes")
     parser.add_argument('--model_name', type=str, default='MTKMed', help="model name")
-    parser.add_argument('--data_path', type=str, default='E://program/PycharmProjects/MTKMed/data/Med/', help="data path")
-    parser.add_argument('--bert_path', type=str, default='E://program/PycharmProjects/MTKMed/src/models/mcBert', help="mcBert path")
+    parser.add_argument('--data_path', type=str, default='../data/Med/', help="data path")
+    parser.add_argument('--bert_path', type=str, default='./models/mcBert', help="mcBert path")
     parser.add_argument('--dataset', type=str, default='Med', help='dataset')
     parser.add_argument('--early_stop', type=int, default=10,
                         help='early stop after this many epochs without improvement')
@@ -40,15 +40,12 @@ def get_args():
                         help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None,
                         help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
     # pretrain
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
     parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=300, help='number of pretrain epochs')
-    parser.add_argument('-nsp', '--pretrain_nsp', action='store_false', help='whether to use nsp pretrain')
-    parser.add_argument('-mask', '--pretrain_mask', action='store_true', help='whether to use mask prediction pretrain')
-    parser.add_argument('--pretrain_epochs', type=int, default=60, help='number of pretrain epochs')
     parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
@@ -75,7 +72,7 @@ def get_args():
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
     parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
 
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.2, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--weight_ssc', type=float, default=0.1, help='loss weight of satisfying score task')
@@ -309,10 +306,77 @@ def evaluator_nsp(model, data_val, epoch, device, mode='pretrain_nsp'):
         pred_all.extend([True if round(ele2) == ele1 else False for ele1, ele2 in zip(label_cpu, result_cpu)])
     return np.mean(pred_all), loss_val
 
+# def random_mask_word(seq, vocab_size, mask_idx, mask_prob=0.15):
+#     """
+#     Optimized random mask function using NumPy for batch operations.
+#
+#     Args:
+#         seq (np.ndarray): 2D array of token indices with shape (batch_size, seq_len).
+#         vocab_size (int): Size of the vocabulary.
+#         mask_idx (int): Index of the [MASK] token.
+#         mask_prob (float): Probability of masking each token.
+#
+#     Returns:
+#         np.ndarray: Updated sequence with random masking applied.
+#     """
+#     batch_size, seq_len = seq.shape
+#
+#     # Generate random probabilities for each token
+#     rand_probs = np.random.random(size=(batch_size, seq_len))
+#
+#     # Determine which tokens to mask
+#     mask_flags = rand_probs < mask_prob
+#
+#     # Randomly decide how to replace masked tokens
+#     replacement_probs = np.random.random(size=(batch_size, seq_len))
+#
+#     # Create a random token index array for replacements
+#     random_tokens = np.random.randint(0, vocab_size, size=(batch_size, seq_len))
+#
+#     # Apply mask with probabilities
+#     seq = seq.copy()
+#     seq[0][mask_flags & (replacement_probs < 0.8)] = mask_idx  # 80% -> [MASK]
+#     seq[0][mask_flags & (replacement_probs >= 0.8) & (replacement_probs < 0.9)] = random_tokens[
+#         mask_flags & (replacement_probs >= 0.8) & (replacement_probs < 0.9)]  # 10% -> random token
+#     # Remaining 10% leave as-is (no changes needed)
+#
+#     return seq
+#
+#
+# def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
+#     """
+#     Optimized batch masking function.
+#
+#     Args:
+#         batch_data (list): Batch of data where each element contains three sequences.
+#         dis_voc, eval_voc, sym_voc (Vocabulary): Vocabularies for respective sequences.
+#         mask_prob (float): Probability of masking each token.
+#
+#     Returns:
+#         list: Batch data with masking applied.
+#     """
+#     dis_vocab_size = len(dis_voc.word2idx)
+#     eval_vocab_size = len(eval_voc.word2idx)
+#     sym_vocab_size = len(sym_voc.word2idx)
+#
+#     dis_mask_idx = dis_voc.word2idx['[MASK]']
+#     eval_mask_idx = eval_voc.word2idx['[MASK]']
+#     sym_mask_idx = sym_voc.word2idx['[MASK]']
+#
+#     for i, data in enumerate(batch_data):
+#         dis_seq = np.array(data[1])
+#         eval_seq = np.array(data[2])
+#         sym_seq = np.array(data[3])
+#
+#         batch_data[i][1] = random_mask_word(dis_seq, dis_vocab_size, dis_mask_idx, mask_prob)
+#         batch_data[i][2] = random_mask_word(eval_seq, eval_vocab_size, eval_mask_idx, mask_prob)
+#         batch_data[i][3] = random_mask_word(sym_seq, sym_vocab_size, sym_mask_idx, mask_prob)
+#
+#     return batch_data
 
-def random_mask_word(seq, vocab, mask_prob=0.15):
+def random_mask_word(seq, vocab, seq_len, mask_prob=0.15):
     mask_idx = vocab.word2idx['[MASK]']
-    for i, _ in enumerate(seq[0]):
+    for i, _ in enumerate(seq[0][:seq_len]):
         prob = random.random()
         # mask token with 15% probability
         if prob < mask_prob:
@@ -324,18 +388,18 @@ def random_mask_word(seq, vocab, mask_prob=0.15):
             elif prob < 0.9:
                 seq[0][i] = random.choice(list(vocab.word2idx.items()))[1]
             else:
-                pass
+                continue
         else:
-            pass
+            continue
     return seq
 
 
 # mask batch data
-def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob):
+def mask_batch_data(batch_data, dis_voc, eval_voc, sym_voc, mask_prob, seq_len):
     for i in range(len(batch_data)):
-        dis = random_mask_word(batch_data[i][1], dis_voc, mask_prob)
-        evalu = random_mask_word(batch_data[i][2], eval_voc, mask_prob)
-        sym = random_mask_word(batch_data[i][3], sym_voc, mask_prob)
+        dis = random_mask_word(batch_data[i][1], dis_voc, seq_len[0], mask_prob)
+        evalu = random_mask_word(batch_data[i][2], eval_voc, seq_len[1], mask_prob)
+        sym = random_mask_word(batch_data[i][3], sym_voc, seq_len[2], mask_prob)
         batch_data[i][1:4] = [dis, evalu, sym]
     return batch_data
 
@@ -442,7 +506,7 @@ def main(args):
     writer = SummaryWriter(save_dir)  # 自动生成log文件夹
 
     # load state dict
-    model_path = 'E://program/PycharmProjects/MTKMed/pretrained_models/nsp/saved.pretrained_model'
+    model_path = '../pretrained_models/nsp/saved.pretrained_model'
     model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
 
     # train and validation
@@ -451,7 +515,7 @@ def main(args):
 
     # freeze the former layers of bert of patient encoder
     for name, param in model.p_encoder.bert.encoder.named_parameters():
-        if 'layer' in name and int(name.split('.')[1]) < args.freeze_layer_num :
+        if 'layer' in name and int(name.split('.')[1]) < args.freeze_layer_num:
             param.requires_grad = False
 
     # bert embeddings freeze
@@ -563,8 +627,9 @@ def main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, v
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="pretrain_mask", total=len(data_train)):
             batch_size = len(inputs)
             if args.mask_prob > 0:
+                seq_len = [args.seq_len_disease, args.seq_len_evaluation, args.seq_len_symptom]
                 masked_batch = mask_batch_data(inputs, dataset.cure_voc, dataset.evaluation_voc, dataset.symptom_voc,
-                                               args.mask_prob)
+                                               args.mask_prob, seq_len)
             else:
                 masked_batch = inputs
             masked_batch = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in masked_batch]
