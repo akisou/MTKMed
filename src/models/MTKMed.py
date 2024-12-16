@@ -370,7 +370,7 @@ class MTKMed(nn.Module):
         # self.nsp_adapter = Adapter(self.emb_dim, args.adapter_dim)
         self.cls_nsp = nn.Linear(args.embed_dim * 2, 1)
 
-        self.mmoe = MMOE(args.embed_dim * 4, args.num_experts, args.hidden_dim, 2)
+        self.mmoe = MMOE(args.embed_dim * 3, args.num_experts, args.hidden_dim, 2)
 
         # loss weight
         # self.weight_ssc = args.weight_ssc
@@ -476,6 +476,8 @@ class MTKMed(nn.Module):
             # # cal gradient of every task
             # grads_label = torch.autograd.grad(label_loss, [self.weight_label], retain_graph=True)[0]
             # grads_ssc = torch.autograd.grad(ssc_loss, [self.weight_ssc], retain_graph=True)[0]
+            # grad_norm_label = grads_label.norm(2).item()
+            # grad_norm_ssc = grads_ssc.norm(2).item()
 
             # cal gradient
             total_loss.backward()

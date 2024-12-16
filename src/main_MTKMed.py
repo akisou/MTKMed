@@ -46,11 +46,11 @@ def get_args():
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
     parser.add_argument('-mask', '--pretrain_mask', action='store_false', help='whether to use mask prediction pretrain')
     parser.add_argument('--pretrain_epochs', type=int, default=300, help='number of pretrain epochs')
-    parser.add_argument('--mask_prob', type=float, default=1, help='mask probability')
+    parser.add_argument('--mask_prob', type=float, default=0.15, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
     parser.add_argument('--grad_norm', type=int, default=0, help='whether to grad norm for multi task train')
-    parser.add_argument('--gradnorm_alpha', type=float, default=0.2, help='gradnorm alpha when use grad_norm')
+    parser.add_argument('--gradnorm_alpha', type=float, default=0.12, help='gradnorm alpha when use grad_norm')
     parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
     parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
     parser.add_argument('--hidden_dim', type=int, default=256, help='hidden_dim of mmoe module')
@@ -488,7 +488,12 @@ def main(args):
     logging.info(model)
 
     model_path = '../pretrained_models/nsp/saved.pretrained_model'
-    model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
+    state_dict = torch.load(open(model_path, 'rb'), map_location=device)
+    del_keys = [key for key in state_dict.keys() if key.find('mmoe') >= 0]
+    for key in del_keys:
+        del state_dict[key]
+        print(f"Deleted parameter: {key}")
+    model.load_state_dict(state_dict, strict=False)
 
     # # test
     # if args.test:
@@ -504,10 +509,6 @@ def main(args):
     # else:
     rec_results_path = save_dir + '/' + 'rec_results'
     writer = SummaryWriter(save_dir)  # 自动生成log文件夹
-
-    # load state dict
-    model_path = '../pretrained_models/nsp/saved.pretrained_model'
-    model.load_state_dict(torch.load(open(model_path, 'rb'), map_location=device), strict=False)
 
     # train and validation
     model.to(device)
