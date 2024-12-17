@@ -210,7 +210,7 @@ def evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask
             eval_pred.append(eval_pred_temp)
 
             eval_pred_label_tmp = np.where(eval_pred_temp == 1)[0]
-            eval_pred.append(sorted(eval_pred_label_tmp))
+            eval_pred_label.append(sorted(eval_pred_label_tmp))
 
             sym_pred_temp = sym_pred_prob[i].copy()
             sym_pred_temp[sym_pred_temp >= 0.5] = 1
