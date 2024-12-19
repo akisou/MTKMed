@@ -23,6 +23,7 @@ from utils.util import multi_label_metric, ddi_rate_score, get_n_params, create_
     get_grouped_metrics, get_model_path, get_pretrained_model_path
 from utils.metric_evaluation import eval_precision, eval_recall, eval_NDCG, eval_MAP, eval_MRR
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
 torch.cuda.empty_cache()
 
 # Training settings
@@ -40,7 +41,7 @@ def get_args():
                         help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None,
                         help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
     # pretrain
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
@@ -127,6 +128,8 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
         patient_pred_dict[key] = [elem[0] for elem in patient_pred_dict[key]]
 
     loss = train_loss / len(data_valid)
+    loss_bce /= len(data_valid)
+    loss_ssc /= len(data_valid)
     auc = roc_auc_score(label_all, pred_all)
     f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
@@ -166,7 +169,7 @@ def full_sort_pred(args, model, dataset, data_test, gt_test, epoch, device, rec_
     pred_all = []
     rec_all = []
     ssc_all = []
-    for idx, user in tqdm(enumerate(list(user)[:2]), ncols=60, desc="full_sort_pred", total=len(user)):
+    for idx, user in tqdm(enumerate(list(user)), ncols=60, desc="full_sort_pred", total=len(user)):
         inputs = []
         for did in did2info.keys():
             tmp = []
@@ -243,13 +246,15 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
         pred_all.extend(pred_score.cpu().tolist())
 
     loss = train_loss / len(data_test)
+    loss_bce /= len(data_test)
+    loss_ssc /= len(data_test)
     auc = roc_auc_score(label_all, pred_all)
     f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
     logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
     precision, recall, ndcg, mrr = full_sort_pred(args, model, dataset, data_test, gt_test,
                                                   epoch, device, rec_results_path)
-
+    krange = eval(args.topk_range)
     for i in range(len(krange)):
         logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
     return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
@@ -647,7 +652,7 @@ def main(args):
         pretrained_model_path = get_pretrained_model_path(log_directory_path, args.pretrain_prefix)
         load_pretrained_model(model, pretrained_model_path)
     
-    EPOCH = 60
+    EPOCH = 200
     best_epoch, best_auc = 0, 0
     best_model_state = None
     for epoch in range(EPOCH):
