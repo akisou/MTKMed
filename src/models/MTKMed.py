@@ -378,10 +378,13 @@ class MTKMed(nn.Module):
         # grad norm
         self.grad_norm = True if args.grad_norm > 0 else False
         # trainable loss weight
-        self.weight_label = nn.Parameter(torch.tensor(1.0)) if args.grad_norm > 0 else None
-        self.weight_ssc = nn.Parameter(torch.tensor(1.0)) if args.grad_norm > 0 else args.weight_ssc
+        self.weight_label = nn.Parameter(torch.tensor(1.0), requires_grad=True) # if args.grad_norm > 0 else None
+        self.weight_ssc = nn.Parameter(torch.tensor(1.0),  requires_grad=True) \
+            if args.grad_norm > 0 else nn.Parameter(torch.tensor(args.weight_ssc), requires_grad=True)
+        self.target_grad_norm = [1.0, 1.0]
 
         self.alpha = args.gradnorm_alpha
+        self.beta = 0.1
 
         self.init_weights()
 
@@ -464,38 +467,48 @@ class MTKMed(nn.Module):
             logit = self.forward_nsp(input)
             return logit
 
-    def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets, target_grad_norm):
+    def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets, mode='train'):
         # a loss computer for nsp, mask and fine_tuned
         label_loss = F.binary_cross_entropy_with_logits(label_scores, label_targets)
         ssc_loss = F.mse_loss(ssc_scores, ssc_targets)
 
         # grad norm
-        if self.grad_norm:
+        if self.grad_norm and mode == 'train':
             total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
 
             # # cal gradient of every task
-            # grads_label = torch.autograd.grad(label_loss, [self.weight_label], retain_graph=True)[0]
-            # grads_ssc = torch.autograd.grad(ssc_loss, [self.weight_ssc], retain_graph=True)[0]
-            # grad_norm_label = grads_label.norm(2).item()
-            # grad_norm_ssc = grads_ssc.norm(2).item()
+            grads_label = torch.autograd.grad(label_loss, self.mmoe.expert_layers.parameters(), retain_graph=True)
+            grad_norm_label = torch.norm(torch.cat([g.clone().flatten() for g in grads_label if g is not None]), 2)
 
-            # cal gradient
-            total_loss.backward()
+            grads_ssc = torch.autograd.grad(ssc_loss, self.mmoe.expert_layers.parameters(), retain_graph=True)
+            grad_norm_ssc = torch.norm(torch.cat([g.clone().flatten() for g in grads_ssc if g is not None]), 2)
 
-            # L2 norm calculation
-            grad_norm_label = self.weight_label.grad.norm(2)
-            grad_norm_ssc = self.weight_ssc.grad.norm(2)
+            # # cal gradient
+            # total_loss.backward()
+            #
+            # # L2 norm calculation
+            # grad_norm_label = self.weight_label.grad.norm(2)
+            # grad_norm_ssc = self.weight_ssc.grad.norm(2)
+
+            with torch.no_grad():
+                # update target
+                self.target_grad_norm[0] = (self.beta * grad_norm_label + (1 - self.beta) * self.target_grad_norm[0]).item()
+                self.target_grad_norm[1] = (self.beta * grad_norm_ssc + (1 - self.beta) * self.target_grad_norm[1]).item()
+
+                # ensure no < 0
+                self.target_grad_norm[0] = max(self.target_grad_norm[0], 1e-3)
+                self.target_grad_norm[1] = max(self.target_grad_norm[1], 1e-3)
 
             # balance
-            target_ratio_label = target_grad_norm[0] / grad_norm_label
-            target_ratio_ssc = target_grad_norm[1] / grad_norm_ssc
+            target_ratio_label = self.target_grad_norm[0] / grad_norm_label
+            target_ratio_ssc = self.target_grad_norm[1] / grad_norm_ssc
 
             # dynamic update
             with torch.no_grad():
-                self.weight_label *= (1 + self.alpha * (target_ratio_label - 1))
-                self.weight_ssc *= (1 + self.alpha * (target_ratio_ssc - 1))
+                self.weight_label.data *= 1 + self.alpha * (target_ratio_label - 1)
+                self.weight_ssc.data *= 1 + self.alpha * (target_ratio_ssc - 1)
         else:
-            total_loss = label_loss + self.weight_ssc * ssc_loss
+            total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
 
         return total_loss, label_loss, ssc_loss
 
@@ -508,7 +521,8 @@ class MTKMed(nn.Module):
     def score(self, inputs):
         # a function to get the final score of recommendation score
         label_score, ssc_score = self.forward_finetune(inputs)
-        final_pred = torch.sigmoid(label_score * ssc_score)
+        label_score = torch.sigmoid(label_score)
+        final_pred = label_score * ssc_score
 
         return label_score, ssc_score, final_pred
 
