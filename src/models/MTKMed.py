@@ -522,7 +522,7 @@ class MTKMed(nn.Module):
         # a function to get the final score of recommendation score
         label_score, ssc_score = self.forward_finetune(inputs)
         label_score = torch.sigmoid(label_score)
-        final_pred = label_score * ssc_score
+        final_pred = torch.sigmoid(label_score * ssc_score)
 
         return label_score, ssc_score, final_pred
 

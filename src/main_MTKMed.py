@@ -202,9 +202,9 @@ def full_sort_pred(args, model, dataset, data_test, gt_test, epoch, device, rec_
     df = pd.DataFrame({
         'patient_id': dp[:, 0],
         'doctor_id': dp[:, 1],
-        'rec_score': rec_all,
-        'ssc_score': ssc_all,
-        'pred_score': pred_all
+        'rec_score': [round(elem, 4) for elem in rec_all],
+        'ssc_score': [round(elem, 4) for elem in ssc_all],
+        'pred_score': [round(elem, 4) for elem in pred_all]
     })
     df.to_csv(os.path.join(rec_results_path, 'predict.csv'), sep='\t', index=False)
 
@@ -248,7 +248,7 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
 
     logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
     precision, recall, ndcg, mrr = full_sort_pred(args, model, dataset, data_test, gt_test,
-                                                  epoch, device, rec_results_path='')
+                                                  epoch, device, rec_results_path)
 
     for i in range(len(krange)):
         logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
@@ -647,7 +647,7 @@ def main(args):
         pretrained_model_path = get_pretrained_model_path(log_directory_path, args.pretrain_prefix)
         load_pretrained_model(model, pretrained_model_path)
     
-    EPOCH = 1
+    EPOCH = 60
     best_epoch, best_auc = 0, 0
     best_model_state = None
     for epoch in range(EPOCH):
@@ -675,7 +675,6 @@ def main(args):
             train_loss += loss_combined
             loss_bce += loss_bce_train
             loss_ssc += loss_ssc_train
-            break
 
         for name, param in model.named_parameters():
             if param.grad is not None:
