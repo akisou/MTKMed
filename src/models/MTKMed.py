@@ -378,9 +378,8 @@ class MTKMed(nn.Module):
         # grad norm
         self.grad_norm = True if args.grad_norm > 0 else False
         # trainable loss weight
-        self.weight_label = nn.Parameter(torch.tensor(1.0), requires_grad=True) # if args.grad_norm > 0 else None
-        self.weight_ssc = nn.Parameter(torch.tensor(1.0),  requires_grad=True) \
-            if args.grad_norm > 0 else nn.Parameter(torch.tensor(args.weight_ssc), requires_grad=True)
+        self.weight_label = nn.Parameter(torch.tensor(0.1), requires_grad=True) # if args.grad_norm > 0 else None
+        self.weight_ssc = nn.Parameter(torch.tensor(1.0),  requires_grad=True) # if args.grad_norm > 0 else nn.Parameter(torch.tensor(1.0), requires_grad=True)
         self.target_grad_norm = [1.0, 1.0]
 
         self.alpha = args.gradnorm_alpha
@@ -483,21 +482,14 @@ class MTKMed(nn.Module):
             grads_ssc = torch.autograd.grad(ssc_loss, self.mmoe.expert_layers.parameters(), retain_graph=True)
             grad_norm_ssc = torch.norm(torch.cat([g.clone().flatten() for g in grads_ssc if g is not None]), 2)
 
-            # # cal gradient
-            # total_loss.backward()
+            # with torch.no_grad():
+            #     # update target
+            #     self.target_grad_norm[0] = (self.beta * grad_norm_label + (1 - self.beta) * self.target_grad_norm[0]).item()
+            #     self.target_grad_norm[1] = (self.beta * grad_norm_ssc + (1 - self.beta) * self.target_grad_norm[1]).item()
             #
-            # # L2 norm calculation
-            # grad_norm_label = self.weight_label.grad.norm(2)
-            # grad_norm_ssc = self.weight_ssc.grad.norm(2)
-
-            with torch.no_grad():
-                # update target
-                self.target_grad_norm[0] = (self.beta * grad_norm_label + (1 - self.beta) * self.target_grad_norm[0]).item()
-                self.target_grad_norm[1] = (self.beta * grad_norm_ssc + (1 - self.beta) * self.target_grad_norm[1]).item()
-
-                # ensure no < 0
-                self.target_grad_norm[0] = max(self.target_grad_norm[0], 1e-3)
-                self.target_grad_norm[1] = max(self.target_grad_norm[1], 1e-3)
+            #     # ensure no < 0
+            #     self.target_grad_norm[0] = max(self.target_grad_norm[0], 1e-3)
+            #     self.target_grad_norm[1] = max(self.target_grad_norm[1], 1e-3)
 
             # balance
             target_ratio_label = self.target_grad_norm[0] / grad_norm_label
@@ -505,8 +497,11 @@ class MTKMed(nn.Module):
 
             # dynamic update
             with torch.no_grad():
-                self.weight_label.data *= 1 + self.alpha * (target_ratio_label - 1)
-                self.weight_ssc.data *= 1 + self.alpha * (target_ratio_ssc - 1)
+                weight_label_tmp = self.weight_label.data * (1 + self.alpha * (target_ratio_label - 1))
+                weight_ssc_tmp = self.weight_ssc.data * (1 + self.alpha * (target_ratio_ssc - 1))
+                self.weight_label.data = torch.clamp(weight_label_tmp, min=0.1, max=10.0)
+                self.weight_ssc.data = torch.clamp(weight_ssc_tmp, min=0.1, max=10.0)
+                print(self.weight_label, self.weight_ssc)
         else:
             total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
 

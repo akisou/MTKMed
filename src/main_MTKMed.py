@@ -41,7 +41,7 @@ def get_args():
                         help='log dir prefix like "log0", for model test')
     parser.add_argument('-p', '--pretrain_prefix', type=str, default=None,
                         help='log dir prefix like "log0", for finetune')
-    parser.add_argument('--cuda', type=int, default=0, help='which cuda')
+    parser.add_argument('--cuda', type=int, default=-1, help='which cuda')
     # pretrain
 
     parser.add_argument('-nsp', '--pretrain_nsp', action='store_true', help='whether to use nsp pretrain')
@@ -50,7 +50,7 @@ def get_args():
     parser.add_argument('--mask_prob', type=float, default=0.15, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
-    parser.add_argument('--grad_norm', type=int, default=1, help='whether to grad norm for multi task train')
+    parser.add_argument('--grad_norm', type=int, default=0, help='whether to grad norm for multi task train')
     parser.add_argument('--gradnorm_alpha', type=float, default=0.12, help='gradnorm alpha when use grad_norm')
     parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
     parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
@@ -140,7 +140,7 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
     ndcg = eval_NDCG(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
     mrr = eval_MRR(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
 
-    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
+    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, AUC: {auc:.4}, f1: {f1:.4}''')
     for i in range(len(krange)):
         logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
     return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
@@ -251,7 +251,7 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
     auc = roc_auc_score(label_all, pred_all)
     f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
-    logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}''')
+    logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, AUC: {auc:.4}, F1: {f1:.4}''')
     precision, recall, ndcg, mrr = full_sort_pred(args, model, dataset, data_test, gt_test,
                                                   epoch, device, rec_results_path)
     krange = eval(args.topk_range)
@@ -603,6 +603,7 @@ def main(args):
         del state_dict[key]
         # print(f"Deleted parameter: {key}")
     model.load_state_dict(state_dict, strict=False)
+    print(state_dict)
 
     # # test
     # if args.test:
@@ -647,10 +648,10 @@ def main(args):
         main_mask(args, model, optimizer, writer, dataset, data_train, data_valid, voc_size, device, save_dir,
                   log_save_id)
     
-    if not (args.pretrain_mask or args.pretrain_nsp) and args.pretrain_prefix is not None:
-        # if not pretrain, load pretrained model; else, train from scratch
-        pretrained_model_path = get_pretrained_model_path(log_directory_path, args.pretrain_prefix)
-        load_pretrained_model(model, pretrained_model_path)
+    # if not (args.pretrain_mask or args.pretrain_nsp) and args.pretrain_prefix is not None:
+    #     # if not pretrain, load pretrained model; else, train from scratch
+    #     pretrained_model_path = get_pretrained_model_path(log_directory_path, args.pretrain_prefix)
+    #     load_pretrained_model(model, pretrained_model_path)
     
     EPOCH = 200
     best_epoch, best_auc = 0, 0
@@ -681,9 +682,9 @@ def main(args):
             loss_bce += loss_bce_train
             loss_ssc += loss_ssc_train
 
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                print(f'{name}: {param.grad.norm()}')
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    print(f'{name}: {param.grad.norm()}')
 
         avg_train_loss = train_loss / len(data_train)
         avg_loss_bce = loss_bce / len(data_train)
