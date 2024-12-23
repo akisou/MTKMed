@@ -50,7 +50,7 @@ def get_args():
     parser.add_argument('--mask_prob', type=float, default=0.15, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
-    parser.add_argument('--grad_norm', type=int, default=0, help='whether to grad norm for multi task train')
+    parser.add_argument('--grad_norm', type=int, default=1, help='whether to grad norm for multi task train')
     parser.add_argument('--gradnorm_alpha', type=float, default=0.12, help='gradnorm alpha when use grad_norm')
     parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
     parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
@@ -76,7 +76,9 @@ def get_args():
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.2, help='dropout probability of transformer encoder')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
-    parser.add_argument('--weight_ssc', type=float, default=1, help='loss weight of satisfying score task')
+    parser.add_argument('--weight_label', type=float, default=1, help='loss weight of bce task')
+    parser.add_argument('--weight_ssc', type=float, default=10, help='loss weight of satisfying score task')
+    parser.add_argument('--weight_ranknet', type=float, default=2, help='loss weight of ranknet about ranking quality')
 
     # parameters for ablation study
     parser.add_argument('-s', '--doctor_seperate', action='store_true',
@@ -603,7 +605,7 @@ def main(args):
         del state_dict[key]
         # print(f"Deleted parameter: {key}")
     model.load_state_dict(state_dict, strict=False)
-    print(state_dict)
+    # print(state_dict)
 
     # # test
     # if args.test:
@@ -667,11 +669,11 @@ def main(args):
         model.train()
         for batch_idx, (inputs, label_targets, ssc_targets) in tqdm(enumerate(data_train), ncols=60, desc="fintune", total=len(data_train)):
             inputs = [[ele.to(device) if torch.is_tensor(ele) else ele for ele in elem] for elem in inputs]
-            rec_result, ssc_result = model(inputs)
+            rec_result, ssc_result, final_pred = model(inputs)
             label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
-            loss_combined, loss_bce_train, loss_ssc_train = model.compute_loss_fine_tuned(
-                rec_result, ssc_result, label_targets, ssc_targets)
+            loss_combined, loss_bce_train, loss_ssc_train,  = model.compute_loss_fine_tuned(
+                rec_result, ssc_result, final_pred, label_targets, ssc_targets)
 
             optimizer.zero_grad()
             loss_combined.backward()

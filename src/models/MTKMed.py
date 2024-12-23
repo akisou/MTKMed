@@ -378,8 +378,9 @@ class MTKMed(nn.Module):
         # grad norm
         self.grad_norm = True if args.grad_norm > 0 else False
         # trainable loss weight
-        self.weight_label = nn.Parameter(torch.tensor(0.1), requires_grad=True) # if args.grad_norm > 0 else None
-        self.weight_ssc = nn.Parameter(torch.tensor(1.0),  requires_grad=True) # if args.grad_norm > 0 else nn.Parameter(torch.tensor(1.0), requires_grad=True)
+        self.weight_label = nn.Parameter(torch.tensor(1.0), requires_grad=True) if args.grad_norm > 0 else args.weight_label
+        self.weight_ssc = nn.Parameter(torch.tensor(10.0),  requires_grad=True) if args.grad_norm > 0 else args.weight_ssc
+        self.weight_ranknet = args.weight_ranknet
         self.target_grad_norm = [1.0, 1.0]
 
         self.alpha = args.gradnorm_alpha
@@ -411,7 +412,10 @@ class MTKMed(nn.Module):
         # label_result = F.sigmoid(label_result)   # (B,)
         ssc_result = F.sigmoid(ssc_result)  # (B,)
 
-        return label_result, ssc_result
+        label_score = torch.sigmoid(label_result)
+        final_pred = torch.sigmoid(label_score * ssc_result)
+
+        return label_result, ssc_result, final_pred
 
     def forward_mask(self, inputs):
         # batch info transformed
@@ -453,8 +457,8 @@ class MTKMed(nn.Module):
     def forward(self, input, mode='fine-tune'):
         assert mode in ['fine-tune', 'pretrain_mask', 'pretrain_nsp']
         if mode == 'fine-tune':
-            label_result, ssc_result = self.forward_finetune(input)
-            return label_result, ssc_result
+            label_result, ssc_result, final_pred = self.forward_finetune(input)
+            return label_result, ssc_result, final_pred
         
         elif mode == 'pretrain_mask':
             doctor_repr = self.forward_mask(input)      # (B, dim)
@@ -466,14 +470,42 @@ class MTKMed(nn.Module):
             logit = self.forward_nsp(input)
             return logit
 
-    def compute_loss_fine_tuned(self, label_scores, ssc_scores, label_targets, ssc_targets, mode='train'):
+    def ranknet_loss(self, predictions, labels):
+        """
+        RankNet loss for ranking.
+
+        Args:
+            predictions (torch.Tensor): (batch_size,)
+            labels (torch.Tensor):  (batch_size,)
+
+        Returns:
+            torch.Tensor: RankNet Loss
+        """
+        pos_mask = labels == 1
+        neg_mask = labels == 0
+
+        pos_scores = predictions[pos_mask]
+        neg_scores = predictions[neg_mask]
+
+        if pos_scores.numel() == 0 or neg_scores.numel() == 0:
+            return torch.tensor(0.0, device=predictions.device)
+
+        # 计算正负样本对的分数差并应用 Sigmoid 函数
+        pairwise_diff = pos_scores.unsqueeze(1) - neg_scores.unsqueeze(0)
+        ranknet_loss = -torch.log(torch.sigmoid(pairwise_diff)).mean()
+
+        return ranknet_loss
+
+    def compute_loss_fine_tuned(self, label_scores, ssc_scores, final_pred, label_targets, ssc_targets, mode='train'):
         # a loss computer for nsp, mask and fine_tuned
         label_loss = F.binary_cross_entropy_with_logits(label_scores, label_targets)
         ssc_loss = F.mse_loss(ssc_scores, ssc_targets)
+        ranknet_loss = self.ranknet_loss(final_pred, label_targets)
 
         # grad norm
         if self.grad_norm and mode == 'train':
-            total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
+            total_loss = (torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
+                          + torch.mul(self.weight_ranknet, ranknet_loss))
 
             # # cal gradient of every task
             grads_label = torch.autograd.grad(label_loss, self.mmoe.expert_layers.parameters(), retain_graph=True)
@@ -503,7 +535,8 @@ class MTKMed(nn.Module):
                 self.weight_ssc.data = torch.clamp(weight_ssc_tmp, min=0.1, max=10.0)
                 print(self.weight_label, self.weight_ssc)
         else:
-            total_loss = torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
+            total_loss = (torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
+                          + torch.mul(self.weight_ranknet, ranknet_loss))
 
         return total_loss, label_loss, ssc_loss
 
