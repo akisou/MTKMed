@@ -68,10 +68,10 @@ def get_args():
     parser.add_argument('--encoder_layers', type=int, default=3, help='number of encoder layers')
     parser.add_argument('--nhead', type=int, default=4, help='number of encoder head')
     parser.add_argument('--split_rate', type=str, default='6:2:2', help='split_rate of train, valid, test dataset')
-    parser.add_argument('--batch_size', type=int, default=128, help='batch size during training')
+    parser.add_argument('--batch_size', type=int, default=256, help='batch size during training')
     parser.add_argument('--adapter_dim', type=int, default=128, help='dimension of adapter layer')
     parser.add_argument('--boundaries_num', type=int, default=10, help='boundary num of token frequency embedding')
-    parser.add_argument('--topk_range', type=str, default='[2, 5]', help='topk choice')  #
+    parser.add_argument('--topk_range', type=str, default='[2, 5, 10, 20]', help='topk choice')  #
 
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.2, help='dropout probability of transformer encoder')
