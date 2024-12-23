@@ -538,7 +538,7 @@ class MTKMed(nn.Module):
             total_loss = (torch.mul(self.weight_label, label_loss) + torch.mul(self.weight_ssc, ssc_loss)
                           + torch.mul(self.weight_ranknet, ranknet_loss))
 
-        return total_loss, label_loss, ssc_loss
+        return total_loss, label_loss, ssc_loss, ranknet_loss
 
     def compute_loss_mask(self, ):
         pass
@@ -548,9 +548,9 @@ class MTKMed(nn.Module):
 
     def score(self, inputs):
         # a function to get the final score of recommendation score
-        label_score, ssc_score = self.forward_finetune(inputs)
-        label_score = torch.sigmoid(label_score)
-        final_pred = torch.sigmoid(label_score * ssc_score)
+        label_score, ssc_score, final_pred = self.forward_finetune(inputs)
+        # label_score = torch.sigmoid(label_score)
+        # final_pred = torch.sigmoid(label_score * ssc_score)
 
         return label_score, ssc_score, final_pred
 

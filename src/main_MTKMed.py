@@ -50,7 +50,7 @@ def get_args():
     parser.add_argument('--mask_prob', type=float, default=0.15, help='mask probability')
     parser.add_argument('--freeze_layer_num', type=int, default=11, help='freeze the num of former layers of mcbert')
 
-    parser.add_argument('--grad_norm', type=int, default=1, help='whether to grad norm for multi task train')
+    parser.add_argument('--grad_norm', type=int, default=0, help='whether to grad norm for multi task train')
     parser.add_argument('--gradnorm_alpha', type=float, default=0.12, help='gradnorm alpha when use grad_norm')
     parser.add_argument('--initial_gradnorm', type=str, default='[1.0, 1.0]', help='initial target gradnorm')
     parser.add_argument('--embed_dim', type=int, default=128, help='dimension of node embedding')
@@ -97,6 +97,7 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
     train_loss = 0
     loss_bce = 0
     loss_ssc = 0
+    loss_ranknet = 0
     patient_pred_dict = defaultdict(list)
     patient_doctor_pair = []
 
@@ -112,11 +113,12 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
 
         label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
         ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
-        loss_combined, loss_bce_s, loss_ssc_s = model.compute_loss_fine_tuned(rec_result, ssc_result,
-                                                                              label_targets, ssc_targets, mode='valid')
+        loss_combined, loss_bce_s, loss_ssc_s, loss_ranknet_s = model.compute_loss_fine_tuned(
+            rec_result, ssc_result, pred_score, label_targets, ssc_targets, mode='valid')
         train_loss += loss_combined
         loss_bce += loss_bce_s
         loss_ssc += loss_ssc_s
+        loss_ranknet += loss_ranknet_s
         patient_doctor_pair.extend([elem[0].cpu().tolist() for elem in inputs])
 
         label_all.extend(label_targets.cpu().tolist())
@@ -132,6 +134,7 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
     loss = train_loss / len(data_valid)
     loss_bce /= len(data_valid)
     loss_ssc /= len(data_valid)
+    loss_ranknet /= len(data_valid)
     auc = roc_auc_score(label_all, pred_all)
     f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
@@ -142,10 +145,10 @@ def evaluator(args, model, data_valid, gt_valid, epoch, device, rec_results_path
     ndcg = eval_NDCG(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
     mrr = eval_MRR(krange, patient_pred_dict.keys(), patient_pred_dict, gt_valid)
 
-    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, AUC: {auc:.4}, f1: {f1:.4}''')
+    logging.info(f'''Epoch {epoch:03d}, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, Loss_ranknet: {loss_ranknet:.4}, AUC: {auc:.4}, f1: {f1:.4}''')
     for i in range(len(krange)):
         logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
-    return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
+    return loss, loss_bce, loss_ssc, loss_ranknet, auc, f1, precision, recall, ndcg, mrr
 
 
 # full sort recommend
@@ -222,6 +225,7 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
     train_loss = 0
     loss_bce = 0
     loss_ssc = 0
+    loss_ranknet = 0
     patient_pred_dict = defaultdict(list)
     patient_doctor_pair = []
 
@@ -237,11 +241,12 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
 
         label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
         ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
-        loss_combined, loss_bce_s, loss_ssc_s = model.compute_loss_fine_tuned(rec_result, ssc_result,
-                                                                              label_targets, ssc_targets, mode='test')
+        loss_combined, loss_bce_s, loss_ssc_s, loss_ranknet_s = model.compute_loss_fine_tuned(
+            rec_result, ssc_result, pred_score, label_targets, ssc_targets, mode='test')
         train_loss += loss_combined
         loss_bce += loss_bce_s
         loss_ssc += loss_ssc_s
+        loss_ranknet += loss_ranknet_s
         patient_doctor_pair.extend([elem[0].cpu().tolist() for elem in inputs])
 
         label_all.extend(label_targets.cpu().tolist())
@@ -250,16 +255,17 @@ def evaluator_test(args, model, dataset, data_test, gt_test, epoch, device, rec_
     loss = train_loss / len(data_test)
     loss_bce /= len(data_test)
     loss_ssc /= len(data_test)
+    loss_ranknet /= len(data_test)
     auc = roc_auc_score(label_all, pred_all)
     f1 = f1_score([int(elem) for elem in label_all], [int(round(elem)) for elem in pred_all])
 
-    logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, AUC: {auc:.4}, F1: {f1:.4}''')
+    logging.info(f'''Epoch test, Loss_val: {loss:.4}, Loss_bce: {loss_bce:.4}, Loss_ssc: {loss_ssc:.4}, Loss_ranknet: {loss_ranknet:.4}, AUC: {auc:.4}, F1: {f1:.4}''')
     precision, recall, ndcg, mrr = full_sort_pred(args, model, dataset, data_test, gt_test,
                                                   epoch, device, rec_results_path)
     krange = eval(args.topk_range)
     for i in range(len(krange)):
         logging.info(f'''top{krange[i]} of Epoch {epoch:03d}, Precision: {precision[i]: .4}, Recall: {recall[i]: .4}, NDCG: {ndcg[i]: .4}, MRR: {mrr[i]: .4}''')
-    return loss, loss_bce, loss_ssc, auc, f1, precision, recall, ndcg, mrr
+    return loss, loss_bce, loss_ssc, loss_ranknet, auc, f1, precision, recall, ndcg, mrr
 
 @torch.no_grad()
 def evaluator_mask(model, data_val, voc_size, epoch, device, mode='pretrain_mask'):
@@ -664,6 +670,7 @@ def main(args):
         train_loss = 0
         loss_bce = 0
         loss_ssc = 0
+        loss_ranknet = 0
 
         # finetune
         model.train()
@@ -672,7 +679,7 @@ def main(args):
             rec_result, ssc_result, final_pred = model(inputs)
             label_targets = torch.stack(label_targets, dim=0).squeeze(-1).to(device)
             ssc_targets = torch.stack(ssc_targets, dim=0).squeeze(-1).to(device)
-            loss_combined, loss_bce_train, loss_ssc_train,  = model.compute_loss_fine_tuned(
+            loss_combined, loss_bce_train, loss_ssc_train, loss_ranknet_train = model.compute_loss_fine_tuned(
                 rec_result, ssc_result, final_pred, label_targets, ssc_targets)
 
             optimizer.zero_grad()
@@ -683,22 +690,24 @@ def main(args):
             train_loss += loss_combined
             loss_bce += loss_bce_train
             loss_ssc += loss_ssc_train
+            loss_ranknet += loss_ranknet_train
 
-            for name, param in model.named_parameters():
-                if param.grad is not None:
-                    print(f'{name}: {param.grad.norm()}')
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f'{name}: {param.grad.norm()}')
 
         avg_train_loss = train_loss / len(data_train)
         avg_loss_bce = loss_bce / len(data_train)
         avg_loss_ssc = loss_ssc / len(data_train)
+        avg_loss_ranknet = loss_ranknet / len(data_train)
         
         # evaluation
-        loss_val, loss_bce_val, loss_ssc_val, auc, f1, precision, recall, ndcg, mrr = \
+        loss_val, loss_bce_val, loss_ssc_val, loss_ranknet_val, auc, f1, precision, recall, ndcg, mrr = \
             evaluator(args, model, data_valid, gt_merge, epoch, device)
         
-        logging.info(f'''loss_train: {avg_train_loss:.4f}, ''')
-        tensorboard_write(writer, args, avg_train_loss, avg_loss_bce, avg_loss_ssc, loss_val, loss_bce_val, loss_ssc_val,
-                          auc, f1, precision, recall, ndcg, mrr, epoch)
+        logging.info(f'''loss_train: {avg_train_loss:.4f}, loss_bce: {avg_loss_bce: .4f}, loss_ssc: {avg_loss_ssc: .4f}, loss_ranknet: {avg_loss_ranknet: .4f}''')
+        tensorboard_write(writer, args, avg_train_loss, avg_loss_bce, avg_loss_ssc, avg_loss_ranknet, loss_val, loss_bce_val, loss_ssc_val,
+                          loss_ranknet_val, auc, f1, precision, recall, ndcg, mrr, epoch)
 
         # save best epoch
         if epoch != 0 and best_auc < auc:
@@ -717,9 +726,9 @@ def main(args):
     # test
     model.load_state_dict(best_model_state)
     model.to(device)
-    loss_test, loss_bce_test, loss_ssc_test, auc, f1, precision, recall, ndcg, mrr = \
+    loss_test, loss_bce_test, loss_ssc_test, loss_ranknet_test, auc, f1, precision, recall, ndcg, mrr = \
         evaluator_test(args, model, dataset, data_test, gt_merge, -1, device, rec_results_path)
-    tensorboard_write(writer, args, 0, 0, 0, loss_test, loss_bce_test, loss_ssc_test,
+    tensorboard_write(writer, args, 0, 0, 0, 0, loss_test, loss_bce_test, loss_ssc_test, loss_ranknet_test,
                       auc, f1, precision, recall, ndcg, mrr, -1)
 
 
@@ -849,20 +858,23 @@ def load_pretrained_model(model, model_path):
     logging.info('Pretrained model loaded from {}'.format(model_path))
 
 
-def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_train=0., loss_val=0., loss_bce_val=0.,
-                      loss_ssc_val=0., auc=0., f1=0., precision=None, recall=None, ndcg=None, mrr=None, epoch=0):
+def tensorboard_write(writer, args, loss_train=0., loss_bce_train=0., loss_ssc_train=0., loss_ranknet_train=0., loss_val=0., loss_bce_val=0.,
+                      loss_ssc_val=0., loss_ranknet_val=0., auc=0., f1=0., precision=None, recall=None, ndcg=None, mrr=None, epoch=0):
     if epoch >= 0:
         writer.add_scalar('Loss_Train/all', loss_train, epoch)
         writer.add_scalar('Loss_Train/bce', loss_bce_train, epoch)
         writer.add_scalar('Loss_Train/ssc', loss_ssc_train, epoch)
+        writer.add_scalar('Loss_Train/ranknet', loss_ranknet_train, epoch)
 
         writer.add_scalar('Loss_Val/all', loss_val, epoch)
         writer.add_scalar('Loss_Val/bce', loss_bce_val, epoch)
         writer.add_scalar('Loss_Val/ssc', loss_ssc_val, epoch)
+        writer.add_scalar('Loss_Val/ranknet', loss_ranknet_val, epoch)
     else:
         writer.add_scalar('Loss_Test/all', loss_val, epoch)
         writer.add_scalar('Loss_Test/bce', loss_bce_val, epoch)
         writer.add_scalar('Loss_Test/ssc', loss_ssc_val, epoch)
+        writer.add_scalar('Loss_Test/ranknet', loss_ranknet_val, epoch)
     writer.add_scalar('Metrics/AUC', auc, epoch)
     writer.add_scalar('Metrics/F1', f1, epoch)
     krange = eval(args.topk_range)
