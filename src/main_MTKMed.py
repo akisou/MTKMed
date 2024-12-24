@@ -187,7 +187,7 @@ def full_sort_pred(args, model, dataset, data_test, gt_test, epoch, device, rec_
 
         patient_doctor_pair.extend([elem[0].cpu().tolist() for elem in inputs])
         pred_all.extend(pred_score.cpu().tolist())
-        rec_all.extend(rec_result.cpu().tolist())
+        rec_all.extend(torch.sigmoid(rec_result).cpu().tolist())
         ssc_all.extend(ssc_result.cpu().tolist())
 
     # patient_id: [(doctor_id, pred), ...]
@@ -546,7 +546,7 @@ def main(args):
     device = torch.device('cuda:{}'.format(args.cuda)) if args.cuda >= 0 else 'cpu'
 
     # load data
-    dataset = MedDataset(args.data_path, "cpu")
+    dataset = MedDataset(args.data_path, "cpu", 2000)
     data_train, data_valid, data_test = random_split(dataset, dataset.split_num(
         [0.1 * float(elem) for elem in args.split_rate.split(':')]))
 

@@ -39,7 +39,7 @@ class Voc():
 
 
 class MedDataset(Dataset):
-    def __init__(self, data_path, device):
+    def __init__(self, data_path, device, limit_length=-1):
         """
         Args:
             data_path: path of target data
@@ -48,6 +48,7 @@ class MedDataset(Dataset):
         self.data_path = data_path
         self.device = device
         self.tokName = ['cure', 'evaluation', 'symptom']
+        self.limit_length = limit_length
 
         self.doctor_info = None
         self.patient_info = None
@@ -101,7 +102,8 @@ class MedDataset(Dataset):
 
         patient2query = dict(zip(patient_info['patient_id'], patient_info['query']))
         output = []
-        rpad = tqdm.tqdm(range(len(ratings[:2000])))
+        rpad = tqdm.tqdm(range(len(ratings[:self.limit_length]))) \
+            if self.limit_length >= 0 else tqdm.tqdm(range(len(ratings)))
         rpad.set_description('construct dataset: ')
         for i in rpad:
             tmp = [torch.LongTensor(ratings.loc[i, ['patient_id', 'doctor_id']]).to(self.device)]
