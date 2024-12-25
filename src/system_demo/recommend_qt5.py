@@ -142,8 +142,6 @@ class Recommender:
         for i in range(len(doctor_info)):
             values = list(doctor_info.loc[i, :].values)
             values[0] = str(values[0])
-            values = values[:3]
-            values.extend([''] * 7)
             items.append(Item(*values))
         return items
 
