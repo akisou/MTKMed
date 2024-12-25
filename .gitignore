@@ -9,6 +9,7 @@ pretrained_models/*
 data/corpus/*
 data/output/*
 data/input/*
+data/doctor/*
 .idea
 .git
 test.py
