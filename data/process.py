@@ -39,9 +39,9 @@ class Preprocessor:
     # data preprocess
     def __init__(self):
         self.data_path = 'E://program/PycharmProjects/doctor_recomend/data/haodf'
-        self.root_path = 'E://program/PycharmProjects/MTKMed/data/'
-        self.output_path = 'E://program/PycharmProjects/MTKMed/data/output'
-        self.dataset_path = 'E://program/PycharmProjects/MTKMed/data/Med'
+        self.root_path = './' # 'E://program/PycharmProjects/MTKMed/data/'
+        self.output_path = './output' # 'E://program/PycharmProjects/MTKMed/data/output'
+        self.dataset_path = './Med'  # 'E://program/PycharmProjects/MTKMed/data/Med'
         print(os.getcwd())
         self.corpus_path = os.path.join(self.root_path, 'corpus')
 
@@ -745,6 +745,25 @@ class Preprocessor:
             sub = self.patient_sampled[self.patient_sampled['department'] == elem]['doctor_id'].unique()
             print(elem, len(sub))
 
+    def build_doctor_info(self):
+        data = './doctor'
+        doctors = pd.read_csv('./output/doctors_filtered.csv', sep='\t')
+        dids = doctors['doctor_id'].values
+
+        columns = ['doctor_id', 'profession_direction', 'profile', 'doctor_title', 'education_title', 'hospital',
+                   'consultation_amount', 'cure_satisfaction', 'attitude_satisfaction', 'message']
+        result = []
+        for file in os.listdir(data):
+            sub = pd.read_csv(os.path.join(data, file), sep=',')
+            sub = sub[sub['doctor_id'].isin(dids)]
+            result.extend(sub[columns].values)
+
+        result = pd.DataFrame(result, columns=columns)
+        result['hospital'] = result['hospital'].apply(
+            lambda x: ', '.join([elem for elem in eval(x) if isinstance(elem, str)]))
+        result = result.fillna('')
+        result.to_csv('./Med/doctor_detail.csv', sep='\t', index=False)
+
     def base_dataset_construction(self):
         satis = []
         self.satisfying_score['satisfying_score'] = self.minmaxscaler.fit_transform(
@@ -841,3 +860,5 @@ if __name__ == '__main__':
     preprocessor.rating_creator()
     preprocessor.posi_nega_sample()
     preprocessor.base_dataset_construction()
+
+    # preprocessor.build_doctor_info()
