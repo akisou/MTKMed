@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea
 )
 from PyQt5.QtCore import Qt
+from collections import defaultdict
 import sys
 
 import os.path
@@ -123,8 +124,6 @@ class Recommender:
             self.doctor2id = json.load(file)
         self.id2doctor = dict(zip(self.doctor2id.values(), self.doctor2id.keys()))
 
-        self.doctor_pool = dict(zip([self.doctor2id[elem.gt_id] for elem in self.items], self.items))
-
         # model
         self.model = self.loadmodel()
 
@@ -138,12 +137,12 @@ class Recommender:
         return voc
 
     def build_items(self, doctor_info):
-        items = []
+        items = dict()
         for i in range(len(doctor_info)):
             values = list(doctor_info.loc[i, :].values)
             values[0] = str(values[0])
             values = ['' if pd.isnull(elem) else elem for elem in values]
-            items.append(Item(*values))
+            items[values[0]] = Item(*values)
         return items
 
     def loadmodel(self):
@@ -155,6 +154,8 @@ class Recommender:
 
         state_dict = torch.load(open(self.model_path, 'rb'), map_location=self.device)
         model.load_state_dict(state_dict, strict=False)
+        # for name, param in model.named_parameters():
+        #     print(name, param.size())
 
         return model
 
@@ -279,7 +280,7 @@ class QueryTool(QMainWindow):
         self.result_table.setRowCount(0)  # 清空旧结果
 
         for i, (id, rec, ssc, pred) in enumerate(results):
-            item = self.model.items[id]
+            item = self.model.items[self.model.id2doctor[id]]
 
             # 将结果逐行添加到表格
             self.result_table.insertRow(i)
