@@ -142,6 +142,7 @@ class Recommender:
         for i in range(len(doctor_info)):
             values = list(doctor_info.loc[i, :].values)
             values[0] = str(values[0])
+            values = ['' if pd.isnull(elem) else elem for elem in values]
             items.append(Item(*values))
         return items
 
