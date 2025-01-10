@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea
 )
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 from collections import defaultdict
 import sys
@@ -194,27 +195,28 @@ class QueryTool(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("Query Matching Tool")
+        self.setWindowTitle("医生推荐模拟系统")
         self.setGeometry(100, 100, 1200, 800)
 
         # 主窗口
         main_widget = QWidget()
         main_layout = QVBoxLayout()
+        self.setWindowIcon(QIcon("../../figs/query.png"))
 
         # 输入框和按钮
         input_layout = QHBoxLayout()
         self.query_input = QLineEdit()
-        self.query_input.setPlaceholderText("Enter your query here...")
+        self.query_input.setPlaceholderText("在这里输入...")
 
         # 提交按钮
-        self.submit_button = QPushButton("Submit")
+        self.submit_button = QPushButton("提交")
         self.submit_button.clicked.connect(self.on_submit)
 
         # 清空按钮
-        self.clear_button = QPushButton("Clear")
+        self.clear_button = QPushButton("清除")
         self.clear_button.clicked.connect(self.on_clear)  # 连接到清空功能
 
-        input_layout.addWidget(QLabel("Query:"))
+        input_layout.addWidget(QLabel("咨询文本:"))
         input_layout.addWidget(self.query_input)
         input_layout.addWidget(self.submit_button)
         input_layout.addWidget(self.clear_button)  # 添加清空按钮
