@@ -8,8 +8,8 @@
 #   Desc     : 
 # ========================================================
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QMessageBox, QMenu, QAction,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QLabel, QScrollArea, QSystemTrayIcon
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
@@ -202,6 +202,21 @@ class QueryTool(QMainWindow):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
         self.setWindowIcon(QIcon("../../figs/query.png"))
+
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon("../../figs/query.png"))  # 设置任务栏图标
+        self.tray_icon.setVisible(True)
+
+        # 设置托盘菜单
+        tray_menu = QMenu(self)
+        quit_action = QAction("Exit", self)
+        quit_action.triggered.connect(self.close)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+
+        # 显示托盘图标
+        self.tray_icon.show()
 
         # 输入框和按钮
         input_layout = QHBoxLayout()
