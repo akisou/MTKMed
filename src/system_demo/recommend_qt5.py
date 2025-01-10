@@ -13,15 +13,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
-from collections import defaultdict
 import sys
 
 import os.path
-import tkinter as tk
-from tkinter import ttk
 from src.models.MTKMed import MTKMed
 from src.utils.dataloader import MedDataset
-import numpy as np
 import argparse
 import pandas as pd
 import textwrap

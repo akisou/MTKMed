@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import pandas as pd
-from torch.nn import LayerNorm
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BertTokenizer, BertModel
