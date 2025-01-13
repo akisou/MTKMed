@@ -84,7 +84,7 @@ for name, counts, bin_size, stop in zip(['disease_cure', 'disease_feedback', 'sy
     
     # 绘制柱状图
     plt.figure(figsize=(10, 6))  # 设置图表大小
-    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='skyblue')
+    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
     
     # 添加标题和坐标轴标签
     txt = ''
@@ -94,20 +94,21 @@ for name, counts, bin_size, stop in zip(['disease_cure', 'disease_feedback', 'sy
         txt = '患者反馈疾病类型数量' 
     elif name == 'symptom':
         txt = '症状类型数量'
-    plt.title(txt + '-医生数量 分布图', fontsize=14)
-    plt.xlabel(txt, fontsize=12)
-    plt.ylabel('医生数量', fontsize=12)
+    plt.title(txt + '-医生数量 分布图', fontsize=20)
+    plt.xlabel(txt, fontsize=18)
+    plt.ylabel('医生数量', fontsize=18)
     
     # 设置横坐标标签旋转，避免重叠
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=45, fontsize=14)
+    plt.yticks(fontsize=14)
     
     # 在柱子上方标出具体数值
     for i, value in enumerate(hist):
-        plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=10)
+        plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=14)
     
     # 调整布局并显示图表
     plt.tight_layout()
-    plt.savefig('../figs/' + name + '.png', dpi=300, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
+    plt.savefig('../figs/' + name + '.pdf', dpi=600, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
     plt.show()
 
 
@@ -128,7 +129,7 @@ for name, counts, bin_size, stop in zip(['patient_cure_num', 'patient_feedback_n
 
     # 绘制柱状图
     plt.figure(figsize=(12, 6))  # 设置图表大小
-    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='skyblue')
+    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
 
     # 添加标题和坐标轴标签
     txt = ''
@@ -138,27 +139,28 @@ for name, counts, bin_size, stop in zip(['patient_cure_num', 'patient_feedback_n
         txt = '患者反馈数量'
     elif name == 'symptom_num':
         txt = '医生接触症状总数量'
-    plt.title(txt + '-医生数量 分布图', fontsize=16)
-    plt.xlabel(txt, fontsize=12)
-    plt.ylabel('医生数量', fontsize=12)
+    plt.title(txt + '-医生数量 分布图', fontsize=20)
+    plt.xlabel(txt, fontsize=18)
+    plt.ylabel('医生数量', fontsize=18)
 
     # 设置横坐标的标签旋转，以防止重叠
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=45, fontsize=14)
+    plt.yticks(fontsize=14)
 
     # 在柱状图上标出每个柱子的具体值
     for i, value in enumerate(hist):
-        plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=10)
+        plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=14)
 
     # 显示图表
     plt.tight_layout()  # 调整布局，防止标签被裁剪
-    plt.savefig('../figs/' + name + '.png', dpi=300, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
+    plt.savefig('../figs/' + name + '.pdf', dpi=600, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
     plt.show()
 
 
 # 分桶设置
 bin_size = 5
 max_count = max(query_length)  # 找到最大值，确定分桶范围
-bins = list(range(0, 100 + 1, bin_size))  # 生成分桶边界 [0, 100, 200, ..., max_count]
+bins = list(range(5, 100 + 1, bin_size))  # 生成分桶边界 [0, 100, 200, ..., max_count]
 bins.append(max_count)
 
 # 使用numpy.histogram统计每个桶内的数据数量
@@ -169,20 +171,21 @@ bin_labels = [f"{int(bin_edges[i])}-{int(bin_edges[i+1])}" for i in range(len(bi
 
 # 绘制柱状图
 plt.figure(figsize=(12, 6))  # 设置图表大小
-plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='skyblue')
+plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
 
-plt.title('query长度-患者数量 分布图', fontsize=16)
-plt.xlabel('query长度', fontsize=12)
-plt.ylabel('患者数量', fontsize=12)
+plt.title('query长度-患者数量 分布图', fontsize=20)
+plt.xlabel('query长度', fontsize=18)
+plt.ylabel('患者数量', fontsize=18)
 
 # 设置横坐标的标签旋转，以防止重叠
-plt.xticks(rotation=45)
+plt.xticks(rotation=45, fontsize=14)
+plt.yticks(fontsize=14)
 
 # 在柱状图上标出每个柱子的具体值
 for i, value in enumerate(hist):
-    plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=10)
+    plt.text(i, value + 0.5, str(value), ha='center', va='bottom', fontsize=14)
 
 # 显示图表
 plt.tight_layout()  # 调整布局，防止标签被裁剪
-plt.savefig('../figs/' + 'query_length.png', dpi=300, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
+plt.savefig('../figs/' + 'query_length.pdf', dpi=600, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
 plt.show()
