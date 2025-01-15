@@ -17,6 +17,7 @@ sys.path.append("E://program/PycharmProjects/MTKMed")
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from collections import Counter
 os.chmod('./', stat.S_IRWXU)
 
@@ -189,3 +190,66 @@ for i, value in enumerate(hist):
 plt.tight_layout()  # 调整布局，防止标签被裁剪
 plt.savefig('../figs/' + 'query_length.pdf', dpi=600, bbox_inches='tight')  # 保存为高分辨率 PNG 文件
 plt.show()
+
+## 满意度数据
+scores1 = ratings[ratings['label'] == 1]['satisfying_score'].values.tolist()
+mean_score1 = np.mean(scores1)
+print(mean_score1)
+
+scores2 = ratings[ratings['label'] == 1][['doctor_id', 'satisfying_score']].groupby('doctor_id').mean()['satisfying_score'].values.tolist()
+mean_score2 = np.mean(scores2)
+print(mean_score2)
+
+# 绘制两个图一左一右
+fig, axes = plt.subplots(1, 2, figsize=(20, 6), sharey=False)
+
+# 左侧图：患者满意度值分布
+sns.histplot(scores1, bins=100, kde=True, color='skyblue', edgecolor='black', alpha=0.7, ax=axes[0])
+axes[0].set_title("患者满意度值分布", fontsize=22)
+axes[0].set_xlabel("患者满意度", fontsize=20)
+axes[0].set_ylabel("频次", fontsize=20)
+axes[0].tick_params(axis='x', labelsize=16)
+axes[0].tick_params(axis='y', labelsize=16)
+axes[0].grid(axis='y', linestyle='--', alpha=0.7)
+
+# 右侧图：医生平均患者满意度值分布
+sns.histplot(scores2, bins=100, kde=True, color='skyblue', edgecolor='black', alpha=0.7, ax=axes[1])
+axes[1].set_title("医生平均患者满意度值分布", fontsize=22)
+axes[1].set_xlabel("医生平均患者满意度", fontsize=20)
+axes[1].set_ylabel("医生数量", fontsize=20)
+axes[1].tick_params(axis='x', labelsize=16)
+axes[1].tick_params(axis='y', labelsize=16)
+axes[1].grid(axis='y', linestyle='--', alpha=0.7)
+
+# 调整布局并保存图片
+plt.tight_layout()
+plt.savefig('../figs/' + '患者满意度相关分布' + '.pdf', dpi=600, bbox_inches='tight')
+plt.show()
+
+
+# # 满意度数据
+# scores = ratings[ratings['label'] == 1]['satisfying_score'].values.tolist()
+# print(np.mean(scores))
+#
+# # 绘制直方图和核密度估计图
+# plt.figure(figsize=(10, 6))
+# sns.histplot(scores, bins=100, kde=True, color='skyblue', edgecolor='black', alpha=0.7)
+# plt.title("患者满意度值分布", fontsize=20)
+# plt.xlabel("患者满意度", fontsize=18)
+# plt.ylabel("数量", fontsize=18)
+# plt.grid(axis='y', linestyle='--', alpha=0.7)
+# plt.savefig('../figs/' + '患者满意度分布' + '.pdf', dpi=600, bbox_inches='tight')
+# plt.show()
+#
+# scores = ratings[ratings['label'] == 1][['doctor_id','satisfying_score']].groupby('doctor_id').mean()['satisfying_score'].values.tolist()
+# print(np.mean(scores))
+# # 绘制直方图和核密度估计图
+# plt.figure(figsize=(10, 6))
+# sns.histplot(scores, bins=100, kde=True, color='skyblue', edgecolor='black', alpha=0.7)
+# plt.title("医生平均患者满意度值分布", fontsize=20)
+# plt.xlabel("医生平均患者满意度", fontsize=18)
+# plt.ylabel("医生数量", fontsize=18)
+# # plt.xticks(np.arange(0, 1.1, 0.2))
+# plt.grid(axis='y', linestyle='--', alpha=0.7)
+# plt.savefig('../figs/' + '医生平均患者满意度分布' + '.pdf', dpi=600, bbox_inches='tight')
+# plt.show()
