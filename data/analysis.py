@@ -85,7 +85,7 @@ for name, counts, bin_size, stop in zip(['disease_cure', 'disease_feedback', 'sy
     
     # 绘制柱状图
     plt.figure(figsize=(10, 6))  # 设置图表大小
-    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
+    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='#82B0D2')
     
     # 添加标题和坐标轴标签
     txt = ''
@@ -130,7 +130,7 @@ for name, counts, bin_size, stop in zip(['patient_cure_num', 'patient_feedback_n
 
     # 绘制柱状图
     plt.figure(figsize=(12, 6))  # 设置图表大小
-    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
+    plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='#82B0D2')
 
     # 添加标题和坐标轴标签
     txt = ''
@@ -172,7 +172,7 @@ bin_labels = [f"{int(bin_edges[i])}-{int(bin_edges[i+1])}" for i in range(len(bi
 
 # 绘制柱状图
 plt.figure(figsize=(12, 6))  # 设置图表大小
-plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='steelblue')
+plt.bar(bin_labels, hist, width=0.8, edgecolor='black', color='#82B0D2')
 
 plt.title('query长度-患者数量 分布图', fontsize=20)
 plt.xlabel('query长度', fontsize=18)
